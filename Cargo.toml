@@ -4,7 +4,7 @@ version = "0.1.4"
 edition = "2024"
 description = "A zero-click usage meter attached to the Codex Desktop title bar"
 license = "MIT"
-repository = "https://github.com/configcrate/codex-titlebar-meter"
+repository = "https://github.com/YAN-CodeSpring/codex-titlebar-meter"
 homepage = "https://configcrate.com/"
 
 [[bin]]

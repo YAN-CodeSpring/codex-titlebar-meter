@@ -1,4 +1,27 @@
+# Rust build output and release packages
 /target/
 /dist/
+
+# Local runtime settings and logs
+/settings.json
 *.log
-settings.json
+
+# Local environment files and credentials
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Editor and operating system temporary files
+/.idea/
+/.vs/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini

@@ -1,5 +1,11 @@
 # Codex Titlebar Meter
 
+> 本仓库是 [ConfigCrate/codex-titlebar-meter](https://github.com/configcrate/codex-titlebar-meter) 的 Fork，由 [YAN-CodeSpring](https://github.com/YAN-CodeSpring) 维护此修改版。原项目由 ConfigCrate 开发，保留原始 MIT 许可证及版权声明。
+>
+> 本 Fork 的改进：支持最大化和无边框全屏时显示额度，修正最大化边框偏移，并在切换到其他应用时隐藏用量条。已通过 21 项自动化测试，且用户已确认新版在实际桌面环境中显示成功。
+>
+> This fork of [ConfigCrate/codex-titlebar-meter](https://github.com/configcrate/codex-titlebar-meter) is maintained by [YAN-CodeSpring](https://github.com/YAN-CodeSpring). It adds maximized and borderless fullscreen support, corrects positioning, and hides the overlay when another app is active. Original copyright and MIT license are preserved. The original project documentation and artwork follow below.
+
 [中文](#中文说明) · [English](#english)
 
 ![Codex Titlebar Meter 中文效果图](assets/github-hero-zh.png)
@@ -14,6 +20,7 @@ Codex Titlebar Meter 是一个原生 Windows 伴生程序。它把 Codex 返回�
 
 - 零点击：使用 Codex 时始终可见。
 - 自动跟随：只附着在 `OpenAI.Codex` 桌面窗口，不覆盖其他应用。
+- 最大化与全屏：最大化时校正窗口边框偏移；无边框全屏时常驻窗口内部顶部右侧，切换到其他应用时隐藏。
 - 真实数据：通过本机 `codex app-server` 读取，不估算 Token。
 - 无需 API Key：不读取、不复制、不保存登录令牌。
 - 不修改 Codex：不注入 DLL，不改应用文件，不受普通 Codex 更新覆盖。
@@ -32,6 +39,8 @@ Codex Titlebar Meter 是一个原生 Windows 伴生程序。它把 Codex 返回�
 - 双击用量条：最大化或还原 Codex。
 - 点击右侧彩色方块：切换蓝色、绿色和紫色主题。
 - 右键用量条：同样可以切换颜色。
+
+无边框全屏时，用量条距顶部 8 个逻辑像素，右侧保留 158 个逻辑像素，并随显示器缩放比例调整。全屏时仍可切换颜色，拖动和双击不会触发窗口移动或最大化；退出全屏后恢复标题栏操作。
 
 ![Codex Titlebar Meter 标题栏位置说明](assets/titlebar-detail-zh.png)
 
@@ -119,6 +128,8 @@ Codex Titlebar Meter shows your real Codex quota directly in the empty area of t
 
 The compact overlay stays on the right side of the title bar so it does not cover the app menus. It follows the Codex window when you move, resize, maximize, minimize, or close it.
 
+Maximized windows use the visible window area to avoid offsets from invisible resize borders. In borderless fullscreen, the meter stays inside the top-right area, with an 8 logical pixel top margin and 158 logical pixels reserved on the right, scaled for the current monitor. It hides when you switch to another app. Color controls remain available in fullscreen; dragging and double-clicking do not move or maximize the window until fullscreen is exited.
+
 ### Features
 
 - Zero-click visibility while you use Codex.
@@ -153,7 +164,7 @@ The color preference is stored at:
 
 ### Install
 
-Download the Windows x64 ZIP from [Releases](https://github.com/configcrate/codex-titlebar-meter/releases), extract it, and run:
+Download the Windows x64 ZIP from this fork's [Releases](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases) when available, extract it, and run. Releases from the [upstream project](https://github.com/configcrate/codex-titlebar-meter/releases) do not include this fork's fullscreen changes:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
@@ -196,4 +207,4 @@ Multi-window support, light themes, ARM64, and additional UI languages are candi
 
 MIT. Independent project; not affiliated with or endorsed by OpenAI.
 
-Built by [ConfigCrate](https://configcrate.com/).
+Original project built by [ConfigCrate](https://configcrate.com/). Fullscreen improvements in this fork maintained by [YAN-CodeSpring](https://github.com/YAN-CodeSpring).

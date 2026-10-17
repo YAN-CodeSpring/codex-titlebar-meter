@@ -17,7 +17,7 @@ use chrono::Local;
 use windows_sys::Win32::{
     Foundation::{
         BOOL, COLORREF, CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM,
-        LRESULT, RECT, TRUE, WPARAM,
+        LRESULT, POINT, RECT, TRUE, WPARAM,
     },
     Graphics::{
         Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute},
@@ -25,7 +25,8 @@ use windows_sys::Win32::{
             BeginPaint, CreateFontW, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER,
             DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, EndPaint, FF_DONTCARE, FW_NORMAL,
             FillRect, GdiFlush, HGDIOBJ, InvalidateRect, OUT_DEFAULT_PRECIS, PAINTSTRUCT,
-            SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
+            ClientToScreen, GetMonitorInfoW, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+            MonitorFromWindow, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
         },
     },
     System::{
@@ -45,13 +46,15 @@ use windows_sys::Win32::{
             CREATESTRUCTW, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW,
             DispatchMessageW, EnumWindows, GWL_EXSTYLE, GWL_STYLE, GWLP_HWNDPARENT, GWLP_USERDATA,
             GetClientRect, GetMessageW, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId,
+            GW_OWNER, GetForegroundWindow, GetWindow, IsWindow, IsZoomed,
             HCURSOR, HTCAPTION, HWND_TOP, IDC_ARROW, IsIconic, IsWindowVisible, LWA_ALPHA,
             LoadCursorW, MA_NOACTIVATE, MSG, PostQuitMessage, RegisterClassW, SW_HIDE,
             SWP_NOACTIVATE, SWP_SHOWWINDOW, SendMessageW, SetLayeredWindowAttributes, SetTimer,
             SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage, WM_DESTROY,
             WM_ERASEBKGND, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_MOUSEACTIVATE, WM_NCCREATE,
             WM_NCLBUTTONDBLCLK, WM_NCLBUTTONDOWN, WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSW,
-            WS_CAPTION, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP,
+            WS_CAPTION, WS_CHILD, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP,
+            WS_THICKFRAME,
         },
     },
 };
@@ -97,10 +100,18 @@ impl Palette {
 struct AppState {
     overlay: HWND,
     target: HWND,
+    window_mode: WindowMode,
     snapshot: UsageSnapshot,
     palette_index: usize,
     locale: AppLocale,
     next_locale_check: Instant,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WindowMode {
+    Normal,
+    Maximized,
+    Fullscreen,
 }
 
 unsafe impl Send for AppState {}
@@ -175,6 +186,7 @@ pub fn run() -> Result<()> {
         .set(Mutex::new(AppState {
             overlay: hwnd,
             target: ptr::null_mut(),
+            window_mode: WindowMode::Normal,
             snapshot: UsageSnapshot::default(),
             palette_index: saved_settings.palette_index % PALETTES.len(),
             locale: AppLocale::detect(),
@@ -262,19 +274,15 @@ unsafe extern "system" fn window_proc(
                 cycle_palette(hwnd);
                 return 0;
             }
-            if let Some(state) = STATE.get().and_then(|state| state.lock().ok())
-                && !state.target.is_null()
-            {
+            if let Some(target) = caption_target() {
                 ReleaseCapture();
-                SendMessageW(state.target, WM_NCLBUTTONDOWN, HTCAPTION as usize, 0);
+                SendMessageW(target, WM_NCLBUTTONDOWN, HTCAPTION as usize, 0);
             }
             0
         }
         WM_LBUTTONDBLCLK => {
-            if let Some(state) = STATE.get().and_then(|state| state.lock().ok())
-                && !state.target.is_null()
-            {
-                SendMessageW(state.target, WM_NCLBUTTONDBLCLK, HTCAPTION as usize, 0);
+            if let Some(target) = caption_target() {
+                SendMessageW(target, WM_NCLBUTTONDBLCLK, HTCAPTION as usize, 0);
             }
             0
         }
@@ -290,6 +298,13 @@ unsafe extern "system" fn window_proc(
     }
 }
 
+// Never hold STATE while forwarding synchronous messages to another process.
+fn caption_target() -> Option<HWND> {
+    let state = STATE.get()?.lock().ok()?;
+    (!state.target.is_null() && state.window_mode != WindowMode::Fullscreen)
+        .then_some(state.target)
+}
+
 fn track_codex_window() {
     let Some(state_lock) = STATE.get() else {
         return;
@@ -298,6 +313,7 @@ fn track_codex_window() {
         Ok(state) => state,
         Err(_) => return,
     };
+    let overlay = state.overlay;
     let now = Instant::now();
     if now >= state.next_locale_check {
         let locale = AppLocale::detect();
@@ -307,52 +323,58 @@ fn track_codex_window() {
         }
         state.next_locale_check = now + LOCALE_CHECK_INTERVAL;
     }
-    let target = find_codex_window();
-    if target.is_null() || unsafe { IsIconic(target) } != 0 {
+    let target = find_codex_window(state.target);
+    state.target = target;
+    if target.is_null() || unsafe { IsIconic(target) } != 0 || window_is_cloaked(target) {
         CODEX_ACTIVE.store(false, Ordering::Relaxed);
-        state.target = target;
-        unsafe { ShowWindow(state.overlay, SW_HIDE) };
+        drop(state);
+        unsafe { ShowWindow(overlay, SW_HIDE) };
         return;
     }
 
-    let mut bounds = empty_rect();
-    if unsafe { GetWindowRect(target, &mut bounds) } == 0 {
+    let Some((mode, bounds)) = window_placement(target) else {
         CODEX_ACTIVE.store(false, Ordering::Relaxed);
-        unsafe { ShowWindow(state.overlay, SW_HIDE) };
+        drop(state);
+        unsafe { ShowWindow(overlay, SW_HIDE) };
+        return;
+    };
+    state.window_mode = mode;
+    CODEX_ACTIVE.store(true, Ordering::Relaxed);
+
+    // Keep the data reader alive while Codex is in the background, but do not
+    // repeatedly raise its overlay over whichever application is being used.
+    if unsafe { GetForegroundWindow() } != target {
+        drop(state);
+        unsafe { ShowWindow(overlay, SW_HIDE) };
         return;
     }
 
     let dpi = unsafe { GetDpiForWindow(target) }.max(96);
     let scale: f32 = dpi as f32 / 96.0_f32;
-    let total_width = bounds.right - bounds.left;
-    let top_margin = (5.0_f32 * scale).round() as i32;
-    let height = (30.0_f32 * scale).round() as i32;
     let dual_window = state.snapshot.primary.is_some() && state.snapshot.weekly.is_some();
-    let Some((relative_left, width)) = overlay_layout(total_width, scale, dual_window) else {
-        CODEX_ACTIVE.store(true, Ordering::Relaxed);
-        unsafe { ShowWindow(state.overlay, SW_HIDE) };
+    let placement = overlay_placement(bounds, mode, scale, dual_window);
+    drop(state);
+    let Some(placement) = placement else {
+        unsafe { ShowWindow(overlay, SW_HIDE) };
         return;
     };
-    let left = bounds.left + relative_left;
 
-    if state.target != target {
+    if unsafe { GetWindow(overlay, GW_OWNER) } != target {
         unsafe {
-            SetWindowLongPtrW(state.overlay, GWLP_HWNDPARENT, target as isize);
+            SetWindowLongPtrW(overlay, GWLP_HWNDPARENT, target as isize);
         }
     }
-    state.target = target;
-    CODEX_ACTIVE.store(true, Ordering::Relaxed);
     unsafe {
         SetWindowPos(
-            state.overlay,
+            overlay,
             HWND_TOP,
-            left,
-            bounds.top + top_margin,
-            width,
-            height,
+            placement.left,
+            placement.top,
+            placement.right - placement.left,
+            placement.bottom - placement.top,
             SWP_NOACTIVATE | SWP_SHOWWINDOW,
         );
-        InvalidateRect(state.overlay, ptr::null(), 0);
+        InvalidateRect(overlay, ptr::null(), 0);
     }
 }
 
@@ -371,7 +393,106 @@ fn overlay_layout(total_width: i32, scale: f32, dual_window: bool) -> Option<(i3
     Some((left, width))
 }
 
-fn find_codex_window() -> HWND {
+fn overlay_placement(
+    bounds: RECT,
+    mode: WindowMode,
+    scale: f32,
+    dual_window: bool,
+) -> Option<RECT> {
+    let (relative_left, width) = overlay_layout(bounds.right - bounds.left, scale, dual_window)?;
+    let top_margin = if mode == WindowMode::Fullscreen {
+        8.0
+    } else {
+        5.0
+    };
+    let top = bounds.top + (top_margin * scale).round() as i32;
+    let height = (30.0 * scale).round() as i32;
+    if top + height > bounds.bottom {
+        return None;
+    }
+    Some(RECT {
+        left: bounds.left + relative_left,
+        top,
+        right: bounds.left + relative_left + width,
+        bottom: top + height,
+    })
+}
+
+fn classify_window(style: u32, maximized: bool, bounds: RECT, monitor: RECT) -> WindowMode {
+    let covers_monitor = (bounds.left - monitor.left).abs() <= 2
+        && (bounds.top - monitor.top).abs() <= 2
+        && (bounds.right - monitor.right).abs() <= 2
+        && (bounds.bottom - monitor.bottom).abs() <= 2;
+    if style & WS_CAPTION != WS_CAPTION && covers_monitor {
+        WindowMode::Fullscreen
+    } else if maximized {
+        WindowMode::Maximized
+    } else {
+        WindowMode::Normal
+    }
+}
+
+fn intersect_bounds(bounds: RECT, visible: RECT) -> Option<RECT> {
+    let result = RECT {
+        left: bounds.left.max(visible.left),
+        top: bounds.top.max(visible.top),
+        right: bounds.right.min(visible.right),
+        bottom: bounds.bottom.min(visible.bottom),
+    };
+    (result.right > result.left && result.bottom > result.top).then_some(result)
+}
+
+fn window_placement(target: HWND) -> Option<(WindowMode, RECT)> {
+    unsafe {
+        let mut bounds = empty_rect();
+        if GetWindowRect(target, &mut bounds) == 0 {
+            return None;
+        }
+        let monitor = MonitorFromWindow(target, MONITOR_DEFAULTTONEAREST);
+        let mut info: MONITORINFO = std::mem::zeroed();
+        info.cbSize = size_of::<MONITORINFO>() as u32;
+        if monitor.is_null() || GetMonitorInfoW(monitor, &mut info) == 0 {
+            return None;
+        }
+        let mode = classify_window(
+            GetWindowLongPtrW(target, GWL_STYLE) as u32,
+            IsZoomed(target) != 0,
+            bounds,
+            info.rcMonitor,
+        );
+        let visible = match mode {
+            WindowMode::Normal => bounds,
+            // Maximized window rectangles include invisible resize borders.
+            WindowMode::Maximized => intersect_bounds(bounds, info.rcWork)?,
+            WindowMode::Fullscreen => {
+                let mut client = empty_rect();
+                let mut origin = POINT { x: 0, y: 0 };
+                if GetClientRect(target, &mut client) == 0
+                    || ClientToScreen(target, &mut origin) == 0
+                {
+                    return None;
+                }
+                client.left += origin.x;
+                client.right += origin.x;
+                client.top += origin.y;
+                client.bottom += origin.y;
+                intersect_bounds(client, info.rcMonitor)?
+            }
+        };
+        Some((mode, visible))
+    }
+}
+
+fn find_codex_window(previous: HWND) -> HWND {
+    // Preserve the selected main window through maximize/fullscreen transitions,
+    // minimization and virtual desktop changes instead of attaching to another.
+    if !previous.is_null() && is_codex_main_window(previous, true) {
+        return previous;
+    }
+    let foreground = unsafe { GetForegroundWindow() };
+    if !foreground.is_null() && is_codex_main_window(foreground, false) {
+        return foreground;
+    }
     let mut result: HWND = ptr::null_mut();
     unsafe {
         EnumWindows(
@@ -383,39 +504,60 @@ fn find_codex_window() -> HWND {
 }
 
 unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
-    if IsWindowVisible(hwnd) == 0 || IsIconic(hwnd) != 0 {
-        return TRUE;
-    }
-    let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
-    let extended_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-    if !is_main_window_candidate(style, extended_style) {
-        return TRUE;
-    }
-    let mut cloaked: u32 = 0;
-    if DwmGetWindowAttribute(
-        hwnd,
-        DWMWA_CLOAKED as u32,
-        (&mut cloaked as *mut u32).cast(),
-        size_of::<u32>() as u32,
-    ) == 0
-        && cloaked != 0
-    {
-        return TRUE;
-    }
-
-    let Some(path) = process_path_for_window(hwnd) else {
-        return TRUE;
-    };
-    let normalized = path.to_string_lossy().to_ascii_lowercase();
-    if normalized.contains("\\openai.codex_") && normalized.ends_with("\\app\\chatgpt.exe") {
+    if is_codex_main_window(hwnd, false) {
         *(lparam as *mut HWND) = hwnd;
         return 0;
     }
     TRUE
 }
 
+fn is_codex_main_window(hwnd: HWND, known_target: bool) -> bool {
+    unsafe {
+        if IsWindow(hwnd) == 0 || IsWindowVisible(hwnd) == 0 {
+            return false;
+        }
+        let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
+        let extended_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        if !is_main_window_candidate(style, extended_style)
+            || !GetWindow(hwnd, GW_OWNER).is_null()
+        {
+            return false;
+        }
+        if !known_target {
+            if IsIconic(hwnd) != 0 || window_is_cloaked(hwnd) {
+                return false;
+            }
+            // Do not mistake arbitrary frameless helper windows for the main app.
+            let has_frame = style & WS_CAPTION == WS_CAPTION || style & WS_THICKFRAME != 0;
+            if !has_frame
+                && !window_placement(hwnd).is_some_and(|(mode, _)| mode == WindowMode::Fullscreen)
+            {
+                return false;
+            }
+        }
+        let Some(path) = process_path_for_window(hwnd) else {
+            return false;
+        };
+        let normalized = path.to_string_lossy().to_ascii_lowercase();
+        normalized.contains("\\openai.codex_") && normalized.ends_with("\\app\\chatgpt.exe")
+    }
+}
+
+fn window_is_cloaked(hwnd: HWND) -> bool {
+    let mut cloaked: u32 = 0;
+    let result = unsafe {
+        DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAKED as u32,
+            (&mut cloaked as *mut u32).cast(),
+            size_of::<u32>() as u32,
+        )
+    };
+    result == 0 && cloaked != 0
+}
+
 fn is_main_window_candidate(style: u32, extended_style: u32) -> bool {
-    style & WS_CAPTION != 0 && extended_style & WS_EX_TOOLWINDOW == 0
+    style & WS_CHILD == 0 && extended_style & WS_EX_TOOLWINDOW == 0
 }
 
 unsafe fn paint(hwnd: HWND) {
@@ -810,6 +952,71 @@ mod tests {
     fn codex_pet_tool_window_is_not_an_attachment_candidate() {
         assert!(!is_main_window_candidate(WS_CAPTION, WS_EX_TOOLWINDOW));
         assert!(!is_main_window_candidate(WS_POPUP, WS_EX_TOOLWINDOW));
+    }
+
+    #[test]
+    fn borderless_main_window_is_allowed_but_children_are_rejected() {
+        assert!(is_main_window_candidate(WS_POPUP, 0));
+        assert!(!is_main_window_candidate(WS_CHILD | WS_CAPTION, 0));
+    }
+
+    fn rect(left: i32, top: i32, right: i32, bottom: i32) -> RECT {
+        RECT { left, top, right, bottom }
+    }
+
+    #[test]
+    fn fullscreen_requires_borderless_monitor_coverage() {
+        let monitor = rect(0, 0, 1920, 1080);
+        assert_eq!(classify_window(WS_POPUP, false, monitor, monitor), WindowMode::Fullscreen);
+        // Some applications retain their maximized flag while in fullscreen.
+        assert_eq!(classify_window(WS_POPUP, true, monitor, monitor), WindowMode::Fullscreen);
+        assert_eq!(classify_window(WS_CAPTION, false, monitor, monitor), WindowMode::Normal);
+        assert_eq!(classify_window(WS_POPUP, false, rect(0, 0, 1200, 800), monitor), WindowMode::Normal);
+        assert_eq!(classify_window(WS_POPUP, false, rect(-1920, 0, 1920, 1080), monitor), WindowMode::Normal);
+        assert_eq!(classify_window(WS_POPUP, false, rect(-1, -1, 1921, 1081), monitor), WindowMode::Fullscreen);
+    }
+
+    #[test]
+    fn maximized_bounds_remove_invisible_borders_and_respect_taskbar() {
+        let monitor = rect(0, 0, 1920, 1080);
+        let bounds = rect(-8, 32, 1928, 1088);
+        assert_eq!(classify_window(WS_CAPTION, true, bounds, monitor), WindowMode::Maximized);
+        let visible = intersect_bounds(bounds, rect(0, 40, 1920, 1080)).unwrap();
+        let placement = overlay_placement(visible, WindowMode::Maximized, 1.0, false).unwrap();
+        assert_eq!((placement.left, placement.top, placement.right, placement.bottom), (1542, 45, 1762, 75));
+    }
+
+    #[test]
+    fn placement_scales_on_negative_coordinate_monitors() {
+        for scale in [1.0, 1.5, 2.0] {
+            for dual in [false, true] {
+                let bounds = rect(-2560, -1440, 0, 0);
+                let placement = overlay_placement(bounds, WindowMode::Fullscreen, scale, dual).unwrap();
+                let expected_width = ((if dual { 460.0 } else { 220.0 }) * scale).round() as i32;
+                assert_eq!(placement.top, -1440 + (8.0 * scale).round() as i32);
+                assert_eq!(placement.right, -(158.0 * scale).round() as i32);
+                assert_eq!(placement.right - placement.left, expected_width);
+                assert_eq!(placement.bottom - placement.top, (30.0 * scale).round() as i32);
+                assert!(placement.left >= bounds.left && placement.bottom <= bounds.bottom);
+            }
+        }
+    }
+
+    #[test]
+    fn state_transitions_recalculate_margins_and_preserve_normal_layout() {
+        let bounds = rect(100, 200, 1300, 1000);
+        for mode in [WindowMode::Normal, WindowMode::Maximized, WindowMode::Fullscreen, WindowMode::Normal] {
+            let placement = overlay_placement(bounds, mode, 1.0, false).unwrap();
+            assert_eq!(placement.left, 922);
+            assert_eq!(placement.top, if mode == WindowMode::Fullscreen { 208 } else { 205 });
+        }
+    }
+
+    #[test]
+    fn placement_hides_when_there_is_no_safe_space() {
+        assert!(overlay_placement(rect(0, 0, 500, 800), WindowMode::Fullscreen, 1.0, false).is_none());
+        assert!(overlay_placement(rect(0, 0, 1200, 35), WindowMode::Fullscreen, 1.0, false).is_none());
+        assert!(intersect_bounds(rect(-100, 0, 0, 100), rect(0, 0, 100, 100)).is_none());
     }
 
     #[test]
