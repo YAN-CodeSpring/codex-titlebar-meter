@@ -4,13 +4,19 @@ param()
 $ErrorActionPreference = 'Stop'
 $repository = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $dist = Join-Path $repository 'dist'
-$package = Join-Path $dist 'codex-titlebar-meter-v0.1.4-windows-x64'
 
 Push-Location $repository
 try {
-    cargo test
+    $metadataJson = cargo metadata --no-deps --format-version 1 --locked
+    if ($LASTEXITCODE -ne 0) { throw 'cargo metadata failed' }
+    $metadata = $metadataJson | ConvertFrom-Json
+    $version = ($metadata.packages | Where-Object { $_.name -eq 'codex-titlebar-meter' }).version
+    if (-not $version) { throw 'Package version was not found in Cargo metadata' }
+    $package = Join-Path $dist "codex-titlebar-meter-v$version-windows-x64"
+
+    cargo test --locked
     if ($LASTEXITCODE -ne 0) { throw 'cargo test failed' }
-    cargo build --release
+    cargo build --release --locked
     if ($LASTEXITCODE -ne 0) { throw 'cargo build --release failed' }
 
     $archive = "$package.zip"
@@ -18,7 +24,7 @@ try {
         throw "Release output already exists: $package"
     }
     New-Item -ItemType Directory -Path $package -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $repository 'target\release\codex-titlebar-meter.exe') -Destination (Join-Path $package 'codex-titlebar-meter.exe')
+    Copy-Item -LiteralPath (Join-Path $metadata.target_directory 'release\codex-titlebar-meter.exe') -Destination (Join-Path $package 'codex-titlebar-meter.exe')
     Copy-Item -LiteralPath (Join-Path $repository 'install.ps1') -Destination $package
     Copy-Item -LiteralPath (Join-Path $repository 'uninstall.ps1') -Destination $package
     Copy-Item -LiteralPath (Join-Path $repository 'README.md') -Destination $package

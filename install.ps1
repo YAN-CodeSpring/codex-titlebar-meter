@@ -6,6 +6,7 @@ $appName = 'CodexTitlebarMeter'
 $sourceDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $sourceExe = Join-Path $sourceDirectory 'codex-titlebar-meter.exe'
 $sourceUninstaller = Join-Path $sourceDirectory 'uninstall.ps1'
+$sourceLicense = Join-Path $sourceDirectory 'LICENSE'
 $installDirectory = Join-Path $env:LOCALAPPDATA 'Programs\CodexTitlebarMeter'
 $targetExe = Join-Path $installDirectory 'CodexTitlebarMeter.exe'
 $targetUninstaller = Join-Path $installDirectory 'uninstall.ps1'
@@ -17,6 +18,9 @@ if (-not (Test-Path -LiteralPath $sourceExe -PathType Leaf)) {
 }
 if (-not (Test-Path -LiteralPath $sourceUninstaller -PathType Leaf)) {
     throw "uninstall.ps1 must be next to install.ps1"
+}
+if (-not (Test-Path -LiteralPath $sourceLicense -PathType Leaf)) {
+    throw 'LICENSE must be next to install.ps1'
 }
 
 $runningProcesses = Get-CimInstance Win32_Process -Filter "Name = 'CodexTitlebarMeter.exe' OR Name = 'codex-titlebar-meter.exe'" |
@@ -41,16 +45,17 @@ if (-not $copied) {
     throw 'Could not replace CodexTitlebarMeter.exe'
 }
 Copy-Item -LiteralPath $sourceUninstaller -Destination $targetUninstaller -Force
+Copy-Item -LiteralPath $sourceLicense -Destination (Join-Path $installDirectory 'LICENSE') -Force
 
 New-Item -Path $runKey -Force | Out-Null
 Set-ItemProperty -Path $runKey -Name $appName -Value ('"{0}"' -f $targetExe)
 
 New-Item -Path $uninstallKey -Force | Out-Null
 Set-ItemProperty -Path $uninstallKey -Name DisplayName -Value 'Codex Titlebar Meter'
-Set-ItemProperty -Path $uninstallKey -Name DisplayVersion -Value '0.1.4'
-Set-ItemProperty -Path $uninstallKey -Name Publisher -Value 'ConfigCrate'
+Set-ItemProperty -Path $uninstallKey -Name DisplayVersion -Value '0.1.5'
+Set-ItemProperty -Path $uninstallKey -Name Publisher -Value 'YAN-CodeSpring (fork of ConfigCrate)'
 Set-ItemProperty -Path $uninstallKey -Name InstallLocation -Value $installDirectory
-Set-ItemProperty -Path $uninstallKey -Name URLInfoAbout -Value 'https://configcrate.com/'
+Set-ItemProperty -Path $uninstallKey -Name URLInfoAbout -Value 'https://github.com/YAN-CodeSpring/codex-titlebar-meter'
 Set-ItemProperty -Path $uninstallKey -Name UninstallString -Value ('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $targetUninstaller)
 Set-ItemProperty -Path $uninstallKey -Name NoModify -Value 1 -Type DWord
 Set-ItemProperty -Path $uninstallKey -Name NoRepair -Value 1 -Type DWord

@@ -59,7 +59,12 @@ Codex Titlebar Meter 是一个原生 Windows 伴生程序。它把 Codex 返回�
 
 ## 安装
 
-从 Releases 下载 Windows x64 ZIP，解压后运行：
+1. 打开本 Fork 的 [最新 Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest)，下载 `codex-titlebar-meter-v0.1.5-windows-x64.zip`（不是 GitHub 自动生成的 Source code）。
+2. 将 ZIP 完整解压到一个文件夹。
+3. 退出正在运行的旧版用量条，然后双击 `codex-titlebar-meter.exe`，即可使用便携版；无需安装 Rust。
+4. 打开已登录的 Microsoft Store 版 Codex Desktop，用量条会自动显示。最大化和无边框全屏均可使用。
+
+如果需要登录 Windows 后自动启动，在解压目录中打开 PowerShell，运行：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
@@ -164,7 +169,9 @@ The color preference is stored at:
 
 ### Install
 
-Download the Windows x64 ZIP from this fork's [Releases](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases) when available, extract it, and run. Releases from the [upstream project](https://github.com/configcrate/codex-titlebar-meter/releases) do not include this fork's fullscreen changes:
+Download `codex-titlebar-meter-v0.1.5-windows-x64.zip` from this fork's [latest Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest), not the automatically generated source archives. Extract the whole ZIP, exit any older running meter, and double-click `codex-titlebar-meter.exe`. No Rust installation is required. Open the Microsoft Store version of Codex Desktop and sign in; the meter appears automatically, including in maximized and borderless fullscreen windows.
+
+For automatic startup at Windows sign-in, open PowerShell in the extracted folder and run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
