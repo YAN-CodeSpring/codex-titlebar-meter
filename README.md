@@ -14,7 +14,35 @@ A Windows **Codex quota monitor and usage meter** for OpenAI Codex Desktop. See 
 
 [中文](#中文说明) · [English](#english)
 
+## 真实窗口演示 / Real window screenshots
+
+**F11 无边框全屏：右上角的系统窗口按钮已隐藏，用量条仍然可见。**
+
+通过 Codex 的“视图 → 切换全屏”进入全屏，退出后恢复标题栏位置。以下是本 Fork 于 2026-10-17 在 Windows 上拍摄的真实窗口截图；额度为拍摄时的实际数据，会随账号和时间变化。
+
+**Borderless fullscreen:** the system window controls are hidden while the quota meter remains visible. These are real Windows captures of this fork, taken on 2026-10-17, rather than concept artwork.
+
+![Codex Desktop F11 无边框全屏时，右上方额度用量条仍然显示 / Real fullscreen quota overlay](assets/demo-fullscreen.jpg)
+
+<details>
+<summary>查看普通窗口与最大化对比 / Windowed and maximized views</summary>
+
+**普通窗口 / Windowed** — 用量条跟随窗口，保留标题栏与系统窗口按钮。
+
+![Codex 普通窗口下的真实额度用量条 / Windowed quota meter](assets/demo-windowed.jpg)
+
+**最大化 / Maximized** — 窗口铺满工作区，系统窗口按钮仍可见，用量条保持在标题栏安全区域。
+
+![Codex 最大化窗口下的真实额度用量条 / Maximized quota meter](assets/demo-maximized.jpg)
+
+</details>
+
+<details>
+<summary>原项目效果示意图 / Upstream concept artwork</summary>
+
 ![Codex Titlebar Meter 中文效果图](assets/github-hero-zh.png)
+
+</details>
 
 ## 中文说明
 
