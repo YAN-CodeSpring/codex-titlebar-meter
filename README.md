@@ -1,4 +1,10 @@
-# Codex Titlebar Meter
+# Codex Titlebar Meter — Codex 额度监控与全屏显示
+
+在 Windows 上实时查看 **OpenAI Codex Desktop 剩余额度、使用限制和重置时间**。用量条显示在标题栏右侧，支持最大化与无边框全屏，无需打开账户菜单，也不需要 API Key。
+
+A Windows **Codex quota monitor and usage meter** for OpenAI Codex Desktop. See remaining quota, rate limits, and reset times in a title bar overlay, with maximized and borderless fullscreen support.
+
+[下载 Windows x64 程序 / Download](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest) · [安装与使用](#安装) · [English](#english)
 
 > 本仓库是 [ConfigCrate/codex-titlebar-meter](https://github.com/configcrate/codex-titlebar-meter) 的 Fork，由 [YAN-CodeSpring](https://github.com/YAN-CodeSpring) 维护此修改版。原项目由 ConfigCrate 开发，保留原始 MIT 许可证及版权声明。
 >
