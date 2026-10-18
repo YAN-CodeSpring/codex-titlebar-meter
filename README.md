@@ -71,7 +71,7 @@ Codex Titlebar Meter 是一个原生 Windows 伴生程序。它把 Codex 返回�
 
 ## 安装
 
-1. 打开本 Fork 的 [最新 Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest)，下载 `codex-titlebar-meter-v0.1.7-windows-x64.zip`（不是 GitHub 自动生成的 Source code）。
+1. 打开本 Fork 的 [最新 Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest)，下载 `codex-titlebar-meter-v0.1.8-windows-x64.zip`（不是 GitHub 自动生成的 Source code）。
 2. 将 ZIP 完整解压到一个文件夹。
 3. 退出正在运行的旧版用量条，然后双击 `codex-titlebar-meter.exe`，即可使用便携版；无需安装 Rust。
 4. 打开已登录的 Microsoft Store 版 Codex Desktop，用量条会自动显示。最大化和无边框全屏均可使用。
@@ -119,6 +119,10 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -PurgeSettings
 从 v0.1.4 起，程序启动时会自动删除自己缓存的旧版 `codex.exe`。它只清理符合 Codex 包命名的旧目录和其中的程序文件，不会删除设置文件；正在运行而被 Windows 锁定的副本会在后续启动时重试清理。
 
 没有遥测，没有第三方服务器，也不会向 ConfigCrate 上传数据。
+
+## 资源占用
+
+v0.1.8 避免在纯显示窗口中初始化输入法。本机约 30 秒采样中，主程序驻留内存约 13 MiB，包含官方额度读取进程和控制台宿主的总计约 75–79 MiB；exe 约 719 KiB。实际占用随系统和 Codex 版本变化，短时采样不代表长期上限。CLI 磁盘缓存另外计算，仍沿用上游的旧版清理机制。详见[资源检查报告](https://github.com/YAN-CodeSpring/codex-titlebar-meter/blob/main/docs/performance.md)。
 
 ## 当前范围
 
@@ -195,7 +199,7 @@ The color preference is stored at:
 
 ### Install
 
-Download `codex-titlebar-meter-v0.1.7-windows-x64.zip` from this fork's [latest Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest), not the automatically generated source archives. Extract the whole ZIP, exit any older running meter, and double-click `codex-titlebar-meter.exe`. No Rust installation is required. Open the Microsoft Store version of Codex Desktop and sign in; the meter appears automatically, including in maximized and borderless fullscreen windows.
+Download `codex-titlebar-meter-v0.1.8-windows-x64.zip` from this fork's [latest Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest), not the automatically generated source archives. Extract the whole ZIP, exit any older running meter, and double-click `codex-titlebar-meter.exe`. No Rust installation is required. Open the Microsoft Store version of Codex Desktop and sign in; the meter appears automatically, including in maximized and borderless fullscreen windows.
 
 For automatic startup at Windows sign-in, open PowerShell in the extracted folder and run:
 
@@ -228,6 +232,10 @@ The app copies the local `codex.exe` bundled with the Microsoft Store build of C
 Since v0.1.4, the app removes its own obsolete CLI copies on startup. It leaves preferences alone and retries later if Windows has locked a still-running copy.
 
 Nothing is sent to ConfigCrate or any third-party server.
+
+### Resource usage
+
+Since v0.1.8, the display-only UI thread opts out of IME initialization. A roughly 30-second local sample measured about 13 MiB resident memory for the meter and 75–79 MiB including its Codex reader and console host; the executable is about 719 KiB. These observations depend on the system and Codex version and are not long-term limits. CLI disk cache is separate and retains upstream's old-version cleanup. See the [resource report](https://github.com/YAN-CodeSpring/codex-titlebar-meter/blob/main/docs/performance.md).
 
 ### Current scope
 
