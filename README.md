@@ -4,15 +4,15 @@
 
 A Windows **Codex quota monitor and usage meter** for OpenAI Codex Desktop. See remaining quota, rate limits, and reset times in a title bar overlay, with maximized and borderless fullscreen support.
 
-**白昼／深色主题 · 可选透明背景 · 七种强调色 · 正常、最大化与全屏显示 · 额度读取状态提示**
+**🎨 白昼／深色主题 · 💎 透明与实验性玻璃背景 · 圆角／方角 · 七种强调色 · 全屏显示 · 平滑字体**
 
-**Light / dark themes · Optional transparent background · Seven accent colors · Normal, maximized, and fullscreen windows · Usage status messages**
+**🎨 Light / dark themes · 💎 Transparent / experimental glass backgrounds · Rounded / square corners · Seven accents · Fullscreen support · Smooth text**
 
-[下载 Windows x64 程序 / Download](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest) · [安装与使用](#安装) · [English](#english)
+[⬇️ 下载 Windows x64 程序 / Download](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest) · [安装与使用](#安装) · [English](#english)
 
 > 本仓库是 [ConfigCrate/codex-titlebar-meter](https://github.com/configcrate/codex-titlebar-meter) 的 Fork，由 [YAN-CodeSpring](https://github.com/YAN-CodeSpring) 维护此修改版。原项目由 ConfigCrate 开发，保留原始 MIT 许可证及版权声明。
 >
-> 本 Fork 的改进：支持最大化和无边框全屏时显示额度，修正最大化边框偏移，并在切换到其他应用时隐藏用量条。v0.1.6 起关闭 Codex 后保持后台监视，重新打开时自动恢复显示。v0.1.7 增加自动深浅配色、透明背景和七种强调色。已通过 26 项自动化测试，且用户已确认全屏显示在实际桌面环境中正常工作。
+> 本 Fork 支持最大化与无边框全屏显示、关闭后重开 Codex 自动恢复，以及自动深浅配色和七种强调色。v0.1.9 新增实验性玻璃背景、圆角／方角与独立双模块布局，改进小字号字体和重绘，减少闪动。已通过 35 项自动化测试，且用户已确认实际字体效果改善。
 >
 > This fork of [ConfigCrate/codex-titlebar-meter](https://github.com/configcrate/codex-titlebar-meter) is maintained by [YAN-CodeSpring](https://github.com/YAN-CodeSpring). It adds maximized and borderless fullscreen support, appearance settings, and memory improvements. Original copyright and MIT license are preserved. Artwork from the original project is retained; the documentation below describes this fork.
 
@@ -30,7 +30,7 @@ Codex Titlebar Meter 是一个原生 Windows 伴生程序。它把 Codex 返回�
 
 - 零点击：使用 Codex 时始终可见。
 - 自动跟随：只附着在 `OpenAI.Codex` 桌面窗口，不覆盖其他应用。
-- 最大化与全屏：最大化时校正窗口边框偏移；无边框全屏时常驻窗口内部顶部右侧，切换到其他应用时隐藏。
+- 🖥️ 最大化与全屏：最大化时校正窗口边框偏移；无边框全屏时常驻窗口内部顶部右侧，切换到其他应用时隐藏。
 - 真实数据：通过本机 `codex app-server` 读取，不估算 Token。
 - 无需 API Key：不读取、不复制、不保存登录令牌。
 - 不修改 Codex：不注入 DLL，不改应用文件，不受普通 Codex 更新覆盖。
@@ -39,7 +39,9 @@ Codex Titlebar Meter 是一个原生 Windows 伴生程序。它把 Codex 返回�
 - 失效可见：连续两分钟没有读到新数据时，进度条变灰并明确提示正在重连。
 - 紧凑不挡菜单：单额度窗口仅占 220 个逻辑像素，并固定在标题栏右侧安全区域。
 - 跟随 Codex 语言：读取 Codex 的 `localeOverride`，自动显示中文或英文；选择自动检测时跟随系统语言。
-- 自选外观：自动、浅色、深色配色，搭配实色或透明背景与七种强调色，设置立即生效并保存。
+- 🎨 自选外观：自动、浅色、深色配色，搭配实色、透明或实验性玻璃背景与七种强调色，设置立即生效并保存。
+- 独立双模块：圆角（默认）或方角，中间留透明间距；两个额度模块统一应用所选形状。
+- 平滑文字与按需重绘：改善中文和数字的小字号笔画，静止且内容不变时不再重复提交相同画面。
 - 轻量原生：Rust + Win32/GDI，无 WebView、Electron 或后台 Windows 服务。
 - 自动管理缓存：Codex 更新后仅保留当前使用的 CLI 副本，并清理旧版本；仍在运行的副本会留待下次清理。
 - 易于移除：按用户安装，无需管理员权限，并出现在 Windows“已安装的应用”中。
@@ -52,19 +54,24 @@ Codex Titlebar Meter 是一个原生 Windows 伴生程序。它把 Codex 返回�
 
 ## 外观与颜色
 
-打开设置菜单后，可以分别调整配色、背景和强调色，不需要重启。
+打开右侧 `...` 设置菜单后，可以分别调整配色、背景、形状和强调色，不需要重启。
 
 | 设置 | 可选项 | 显示效果 |
 | --- | --- | --- |
 | 外观 | 自动（默认）、浅色、深色 | 自动跟随 Codex 标题栏明暗；浅色为白底深色文字，深色为深底浅色文字 |
-| 背景 | 实色（默认）、透明 | 实色提供清晰底板；透明让用量条融入标题栏，文字、进度条和小型设置按钮保持可见 |
+| 背景 | 实色（默认）、透明、液态玻璃（实验） | 实色提供清晰底板；透明融入标题栏；玻璃提供半透明质感与边缘反光 |
+| 形状 | 圆角（默认）、方角 | 两个额度模块分别绘制，同步使用所选形状；中间留 6 个逻辑像素的透明空隙，随显示器缩放 |
 | 强调色 | 蓝、绿、紫、青、橙、粉、石墨灰 | 调整进度条和右侧按钮的颜色；正文随浅色／深色主题保持可读 |
 
-低额度时，进度条优先使用黄色（剩余不超过 20%）或红色（不超过 10%）警示，不会被自选强调色覆盖。透明背景也可搭配自动、浅色或深色文字。外观、背景和强调色会一并保存，重启后继续使用。
+低额度时，进度条优先使用黄色（剩余不超过 20%）或红色（不超过 10%）警示，不会被自选强调色覆盖。透明与玻璃背景也可搭配自动、浅色或深色文字。外观、背景、形状和强调色会一并保存，重启后继续使用。
+
+双额度显示时，两块面板等宽且各自拥有完整圆角或方角，进度条也裁切在各自面板内，不会填平圆角或连住中间间隙。只返回一个额度窗口时，仅显示单块面板。玻璃效果会随标题栏颜色和鼠标位置调整反光，属于实验功能，可以随时切回实色或透明。
 
 自动模式每两秒读取可见标题栏的七个像素，以多数明暗判断跟随 Codex；无法读取时回退到 Windows 应用主题。不保存截图、不读取对话内容。自定义主题或标题栏图案可能影响判断，可手动指定浅色或深色。设置立即生效并在重启后保留，升级时保留原来的强调色。
 
-透明区域允许点击穿透到 Codex，拖动和双击请在文字、进度条等可见区域操作。透明模式采用无抗锯齿文字以避免透明边缘出现色边。
+透明区域与模块之间的空隙允许点击穿透到 Codex，拖动和双击请在面板或文字、进度条等可见区域操作。
+
+🔤 中文默认使用微软雅黑 UI，英文使用 Segoe UI。文字按 3 倍分辨率绘制后缩回实际尺寸，让小字号中文和数字的边缘更平滑；透明与玻璃背景通过逐像素透明合成，避免生硬色边。窗口位置、内容或设置变化时才更新对应画面，实色模式使用离屏缓冲，减少重复清屏造成的闪动。详见[绘制与字体说明](https://github.com/YAN-CodeSpring/codex-titlebar-meter/blob/main/docs/rendering.md)。
 
 无边框全屏时，用量条距顶部 8 个逻辑像素，右侧保留 158 个逻辑像素，并随显示器缩放比例调整。全屏时仍可切换颜色，拖动和双击不会触发窗口移动或最大化；退出全屏后恢复标题栏操作。
 
@@ -84,7 +91,7 @@ Codex Titlebar Meter 是一个原生 Windows 伴生程序。它把 Codex 返回�
 
 ### 当前版本如何显示不同情况？
 
-| 情况 | v0.1.8 的显示与行为 |
+| 情况 | v0.1.9 的显示与行为 |
 | --- | --- |
 | 成功读取额度 | 显示实际周期、剩余百分比和重置时间 |
 | 账号仅返回一个额度窗口 | 只显示这一项，不补造另一条进度条 |
@@ -97,7 +104,7 @@ Codex Titlebar Meter 是一个原生 Windows 伴生程序。它把 Codex 返回�
 
 ### 后续计划：更明确的账号状态提示
 
-后续可在可靠识别状态后，将“未登录”提示为“请先在 Codex 中登录”，将“已登录但没有额度数据”提示为“当前账号未返回额度信息”，将 API 登录提示为“当前登录方式不提供订阅额度”。网络异常继续使用重试提示。**这些细分提示尚未包含在 v0.1.8 中**；不会仅根据读取失败或方案名称猜测订阅已经过期。
+后续可在可靠识别状态后，将“未登录”提示为“请先在 Codex 中登录”，将“已登录但没有额度数据”提示为“当前账号未返回额度信息”，将 API 登录提示为“当前登录方式不提供订阅额度”。网络异常继续使用重试提示。**这些细分提示尚未包含在 v0.1.9 中**；不会仅根据读取失败或方案名称猜测订阅已经过期。
 
 ## 语言支持
 
@@ -108,7 +115,7 @@ Codex Titlebar Meter 是一个原生 Windows 伴生程序。它把 Codex 返回�
 
 ## 安装
 
-1. 打开本 Fork 的 [最新 Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest)，下载 `codex-titlebar-meter-v0.1.8-windows-x64.zip`（不是 GitHub 自动生成的 Source code）。
+1. 打开本 Fork 的 [最新 Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest)，下载 `codex-titlebar-meter-v0.1.9-windows-x64.zip`（不是 GitHub 自动生成的 Source code）。
 2. 将 ZIP 完整解压到一个文件夹。
 3. 退出正在运行的旧版用量条，然后双击 `codex-titlebar-meter.exe`，即可使用便携版；无需安装 Rust。
 4. 打开已登录的 Microsoft Store 版 Codex Desktop，用量条会自动显示。最大化和无边框全屏均可使用。
@@ -207,7 +214,9 @@ Maximized windows use the visible window area to avoid offsets from invisible re
 - If Codex does not return a short-term quota window, the meter does not invent one.
 - Low-quota warning colors: amber at 20% remaining and red at 10% remaining.
 - A gray stale-data state appears after two minutes without a successful refresh while the meter reconnects.
-- Auto, Light, and Dark appearance, solid or transparent backgrounds, and seven persistent accent colors.
+- 🎨 Auto, Light, and Dark appearance; solid, transparent, or experimental glass backgrounds; seven persistent accents.
+- Independent rounded (default) or square quota cards with a transparent gap between them.
+- Smooth small text and cached, on-demand rendering to reduce flicker.
 
 ### Controls
 
@@ -217,19 +226,22 @@ Maximized windows use the visible window area to avoid offsets from invisible re
 
 ### Appearance and colors
 
-Settings apply immediately without restarting. Appearance, background, and accent are independent preferences saved across restarts.
+Settings apply immediately without restarting. Appearance, background, corners, and accent are independent preferences saved across restarts.
 
 | Setting | Options | Effect |
 | --- | --- | --- |
 | Appearance | Auto (default), Light, Dark | Follow the Codex title bar, or choose a white background with dark text / dark background with light text |
-| Background | Solid (default), Transparent | Keep a readable panel or blend into the title bar; text, bars, and the small settings button remain visible |
+| Background | Solid (default), Transparent, Liquid glass (experimental) | Use a readable panel, blend into the title bar, or choose a translucent material with rim reflections |
+| Corners | Rounded (default), Square | Apply the same shape to both independent quota cards, separated by a DPI-scaled 6 logical pixel gap |
 | Accent | Blue, Green, Purple, Cyan, Orange, Pink, Graphite | Color the progress bars and settings button while body text follows the selected appearance |
 
-Amber and red low-quota warnings take priority over the selected accent. Transparent backgrounds work with Auto, Light, and Dark appearance.
+Amber and red low-quota warnings take priority over the selected accent. Transparent and glass backgrounds work with Auto, Light, and Dark appearance. Both cards have their own complete outline; bars and buttons are clipped to their card instead of bridging the gap. Only one card appears when Codex returns a single quota window. Experimental glass reflections respond to the title-bar color and pointer position.
 
 Auto checks seven pixels in the visible Codex title bar every two seconds and follows their majority brightness, falling back to the Windows app theme if sampling fails. It does not save screenshots or read conversations. Custom title-bar artwork may affect detection; use a manual theme if needed. Changes apply immediately and persist across restarts, including the existing accent when upgrading.
 
-Transparent regions pass clicks through to Codex; use visible text or bars for dragging and double-clicking. Transparent mode uses non-antialiased text to avoid colored fringes.
+Transparent regions and the center gap pass clicks through to Codex; use visible panels, text, or bars for dragging and double-clicking.
+
+🔤 Chinese text uses Microsoft YaHei UI and English uses Segoe UI. Content is rendered at triple resolution and downsampled for smoother small glyphs; per-pixel alpha supports transparent and glass backgrounds. Unchanged frames are cached, window positioning is only updated when needed, and solid painting uses an offscreen buffer. See the [rendering notes](https://github.com/YAN-CodeSpring/codex-titlebar-meter/blob/main/docs/rendering.md).
 
 Appearance preferences are stored at:
 
@@ -243,7 +255,7 @@ The meter is intended for Microsoft Store Codex Desktop on Windows 10/11 x64, ac
 
 **The meter does not enforce a paid-plan requirement or ask you to buy an additional subscription.** It displays compatible quota windows returned by Codex without filtering accounts by Free, Plus, or Pro labels. Free and paid accounts follow the same display logic when quota data is available. This is not a claim that every plan, authentication method, or future version has been tested.
 
-| Situation | Current behavior in v0.1.8 |
+| Situation | Current behavior in v0.1.9 |
 | --- | --- |
 | Quota available | Show actual window durations, remaining percentages, and reset times |
 | Only one quota window returned | Show just that window |
@@ -252,9 +264,9 @@ The meter is intended for Microsoft Store Codex Desktop on Windows 10/11 x64, ac
 | Existing data not refreshed for two minutes | Show “Usage stale · reconnecting” with a gray bar |
 | Codex closed | Hide the overlay and wait for Codex to reopen |
 
-**v0.1.8 does not separately identify signed-out accounts, API-key authentication, missing subscriptions, or subscription expiry.** These may currently produce the generic retry message. A failed quota read does not establish that a subscription has expired or that a Free account is unsupported.
+**v0.1.9 does not separately identify signed-out accounts, API-key authentication, missing subscriptions, or subscription expiry.** These may currently produce the generic retry message. A failed quota read does not establish that a subscription has expired or that a Free account is unsupported.
 
-More specific signed-out, missing-quota, and API-authentication messages are planned, subject to reliable account-state detection. They are not included in v0.1.8. Subscription expiry will not be guessed from a plan label or read failure.
+More specific signed-out, missing-quota, and API-authentication messages are planned, subject to reliable account-state detection. They are not included in v0.1.9. Subscription expiry will not be guessed from a plan label or read failure.
 
 ### Language support
 
@@ -265,7 +277,7 @@ More specific signed-out, missing-quota, and API-authentication messages are pla
 
 ### Install
 
-Download `codex-titlebar-meter-v0.1.8-windows-x64.zip` from this fork's [latest Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest), not the automatically generated source archives. Extract the whole ZIP, exit any older running meter, and double-click `codex-titlebar-meter.exe`. No Rust installation is required. Open the Microsoft Store version of Codex Desktop and sign in; the meter appears automatically, including in maximized and borderless fullscreen windows.
+Download `codex-titlebar-meter-v0.1.9-windows-x64.zip` from this fork's [latest Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest), not the automatically generated source archives. Extract the whole ZIP, exit any older running meter, and double-click `codex-titlebar-meter.exe`. No Rust installation is required. Open the Microsoft Store version of Codex Desktop and sign in; the meter appears automatically, including in maximized and borderless fullscreen windows.
 
 For automatic startup at Windows sign-in, open PowerShell in the extracted folder and run:
 
