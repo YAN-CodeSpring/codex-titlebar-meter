@@ -4,13 +4,17 @@
 
 A Windows **Codex quota monitor and usage meter** for OpenAI Codex Desktop. See remaining quota, rate limits, and reset times in a title bar overlay, with maximized and borderless fullscreen support.
 
+**白昼／深色主题 · 可选透明背景 · 七种强调色 · 正常、最大化与全屏显示 · 额度读取状态提示**
+
+**Light / dark themes · Optional transparent background · Seven accent colors · Normal, maximized, and fullscreen windows · Usage status messages**
+
 [下载 Windows x64 程序 / Download](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest) · [安装与使用](#安装) · [English](#english)
 
 > 本仓库是 [ConfigCrate/codex-titlebar-meter](https://github.com/configcrate/codex-titlebar-meter) 的 Fork，由 [YAN-CodeSpring](https://github.com/YAN-CodeSpring) 维护此修改版。原项目由 ConfigCrate 开发，保留原始 MIT 许可证及版权声明。
 >
 > 本 Fork 的改进：支持最大化和无边框全屏时显示额度，修正最大化边框偏移，并在切换到其他应用时隐藏用量条。v0.1.6 起关闭 Codex 后保持后台监视，重新打开时自动恢复显示。v0.1.7 增加自动深浅配色、透明背景和七种强调色。已通过 26 项自动化测试，且用户已确认全屏显示在实际桌面环境中正常工作。
 >
-> This fork of [ConfigCrate/codex-titlebar-meter](https://github.com/configcrate/codex-titlebar-meter) is maintained by [YAN-CodeSpring](https://github.com/YAN-CodeSpring). It adds maximized and borderless fullscreen support, corrects positioning, and hides the overlay when another app is active. Original copyright and MIT license are preserved. The original project documentation and artwork follow below.
+> This fork of [ConfigCrate/codex-titlebar-meter](https://github.com/configcrate/codex-titlebar-meter) is maintained by [YAN-CodeSpring](https://github.com/YAN-CodeSpring). It adds maximized and borderless fullscreen support, appearance settings, and memory improvements. Original copyright and MIT license are preserved. Artwork from the original project is retained; the documentation below describes this fork.
 
 [中文](#中文说明) · [English](#english)
 
@@ -35,6 +39,7 @@ Codex Titlebar Meter 是一个原生 Windows 伴生程序。它把 Codex 返回�
 - 失效可见：连续两分钟没有读到新数据时，进度条变灰并明确提示正在重连。
 - 紧凑不挡菜单：单额度窗口仅占 220 个逻辑像素，并固定在标题栏右侧安全区域。
 - 跟随 Codex 语言：读取 Codex 的 `localeOverride`，自动显示中文或英文；选择自动检测时跟随系统语言。
+- 自选外观：自动、浅色、深色配色，搭配实色或透明背景与七种强调色，设置立即生效并保存。
 - 轻量原生：Rust + Win32/GDI，无 WebView、Electron 或后台 Windows 服务。
 - 自动管理缓存：Codex 更新后仅保留当前使用的 CLI 副本，并清理旧版本；仍在运行的副本会留待下次清理。
 - 易于移除：按用户安装，无需管理员权限，并出现在 Windows“已安装的应用”中。
@@ -44,9 +49,18 @@ Codex Titlebar Meter 是一个原生 Windows 伴生程序。它把 Codex 返回�
 - 拖动用量条：移动 Codex 窗口。
 - 双击用量条：最大化或还原 Codex。
 - 点击右侧 `...` 按钮或右键用量条：打开设置菜单。
-- 外观：自动（默认）、浅色、深色。浅色为白底深色文字，深色为深底浅色文字。
-- 背景：实色（默认）或透明；透明模式保留文字、进度条和小型设置按钮。
-- 强调色：蓝、绿、紫、青、橙、粉、石墨灰，共七种。低额度时仍优先显示黄／红色警示。
+
+## 外观与颜色
+
+打开设置菜单后，可以分别调整配色、背景和强调色，不需要重启。
+
+| 设置 | 可选项 | 显示效果 |
+| --- | --- | --- |
+| 外观 | 自动（默认）、浅色、深色 | 自动跟随 Codex 标题栏明暗；浅色为白底深色文字，深色为深底浅色文字 |
+| 背景 | 实色（默认）、透明 | 实色提供清晰底板；透明让用量条融入标题栏，文字、进度条和小型设置按钮保持可见 |
+| 强调色 | 蓝、绿、紫、青、橙、粉、石墨灰 | 调整进度条和右侧按钮的颜色；正文随浅色／深色主题保持可读 |
+
+低额度时，进度条优先使用黄色（剩余不超过 20%）或红色（不超过 10%）警示，不会被自选强调色覆盖。透明背景也可搭配自动、浅色或深色文字。外观、背景和强调色会一并保存，重启后继续使用。
 
 自动模式每两秒读取可见标题栏的七个像素，以多数明暗判断跟随 Codex；无法读取时回退到 Windows 应用主题。不保存截图、不读取对话内容。自定义主题或标题栏图案可能影响判断，可手动指定浅色或深色。设置立即生效并在重启后保留，升级时保留原来的强调色。
 
@@ -56,11 +70,34 @@ Codex Titlebar Meter 是一个原生 Windows 伴生程序。它把 Codex 返回�
 
 ![Codex Titlebar Meter 标题栏位置说明](assets/titlebar-detail-zh.png)
 
-颜色设置保存在：
+外观设置保存在：
 
 ```text
 %LOCALAPPDATA%\ConfigCrate\CodexTitlebarMeter\settings.json
 ```
+
+## 适合哪些用户与账号？
+
+适合在 **Windows 10/11 x64 上使用 Microsoft Store 版 Codex Desktop**、希望随时看到剩余额度的用户。不论习惯白昼还是深色主题、普通窗口还是全屏，都能选择相应外观。
+
+**本工具不设置付费方案门槛，也不要求额外购买订阅。** 它根据 Codex 实际返回的额度窗口显示数据，不按 Free、Plus、Pro 等方案名称过滤账号。免费或付费账号只要返回兼容的额度数据，都会按同一逻辑显示；没有返回的数据不会被虚构出来。这不表示所有方案、登录方式或未来版本都已完成兼容性验证。
+
+### 当前版本如何显示不同情况？
+
+| 情况 | v0.1.8 的显示与行为 |
+| --- | --- |
+| 成功读取额度 | 显示实际周期、剩余百分比和重置时间 |
+| 账号仅返回一个额度窗口 | 只显示这一项，不补造另一条进度条 |
+| 首次连接或重新建立读取会话 | 显示“正在读取 Codex 用量…”；已有新鲜数据时优先保留数据显示 |
+| 读取失败或没有可用额度窗口 | 尚无可用数据时显示“暂时无法读取用量，正在重试…”；已有新鲜数据时暂时保留 |
+| 已有数据连续两分钟未更新 | 显示“数据已过期 · 正在重连”，进度条变灰 |
+| Codex 没有打开 | 隐藏用量条，后台等待；重新打开后自动尝试读取 |
+
+当前版本**尚未单独检测并区分未登录、API Key 登录、未订阅或订阅到期**；这些情况可能表现为统一的读取失败提示。读不到额度不等于订阅过期，也不代表免费账号一定不能使用。
+
+### 后续计划：更明确的账号状态提示
+
+后续可在可靠识别状态后，将“未登录”提示为“请先在 Codex 中登录”，将“已登录但没有额度数据”提示为“当前账号未返回额度信息”，将 API 登录提示为“当前登录方式不提供订阅额度”。网络异常继续使用重试提示。**这些细分提示尚未包含在 v0.1.8 中**；不会仅根据读取失败或方案名称猜测订阅已经过期。
 
 ## 语言支持
 
@@ -170,25 +207,54 @@ Maximized windows use the visible window area to avoid offsets from invisible re
 - If Codex does not return a short-term quota window, the meter does not invent one.
 - Low-quota warning colors: amber at 20% remaining and red at 10% remaining.
 - A gray stale-data state appears after two minutes without a successful refresh while the meter reconnects.
+- Auto, Light, and Dark appearance, solid or transparent backgrounds, and seven persistent accent colors.
 
 ### Controls
 
 - Drag the meter to move the Codex window.
 - Double-click it to maximize or restore Codex.
 - Click the dots on the right, or right-click the meter, to open settings.
-- Appearance: Auto (default), Light, or Dark.
-- Background: Solid (default) or Transparent. Text, progress bars, and the small settings button remain visible.
-- Accent: Blue, Green, Purple, Cyan, Orange, Pink, or Graphite. Low-quota warning colors still take priority.
+
+### Appearance and colors
+
+Settings apply immediately without restarting. Appearance, background, and accent are independent preferences saved across restarts.
+
+| Setting | Options | Effect |
+| --- | --- | --- |
+| Appearance | Auto (default), Light, Dark | Follow the Codex title bar, or choose a white background with dark text / dark background with light text |
+| Background | Solid (default), Transparent | Keep a readable panel or blend into the title bar; text, bars, and the small settings button remain visible |
+| Accent | Blue, Green, Purple, Cyan, Orange, Pink, Graphite | Color the progress bars and settings button while body text follows the selected appearance |
+
+Amber and red low-quota warnings take priority over the selected accent. Transparent backgrounds work with Auto, Light, and Dark appearance.
 
 Auto checks seven pixels in the visible Codex title bar every two seconds and follows their majority brightness, falling back to the Windows app theme if sampling fails. It does not save screenshots or read conversations. Custom title-bar artwork may affect detection; use a manual theme if needed. Changes apply immediately and persist across restarts, including the existing accent when upgrading.
 
 Transparent regions pass clicks through to Codex; use visible text or bars for dragging and double-clicking. Transparent mode uses non-antialiased text to avoid colored fringes.
 
-The color preference is stored at:
+Appearance preferences are stored at:
 
 ```text
 %LOCALAPPDATA%\ConfigCrate\CodexTitlebarMeter\settings.json
 ```
+
+### Supported users and account states
+
+The meter is intended for Microsoft Store Codex Desktop on Windows 10/11 x64, across light/dark themes and normal, maximized, or borderless fullscreen windows.
+
+**The meter does not enforce a paid-plan requirement or ask you to buy an additional subscription.** It displays compatible quota windows returned by Codex without filtering accounts by Free, Plus, or Pro labels. Free and paid accounts follow the same display logic when quota data is available. This is not a claim that every plan, authentication method, or future version has been tested.
+
+| Situation | Current behavior in v0.1.8 |
+| --- | --- |
+| Quota available | Show actual window durations, remaining percentages, and reset times |
+| Only one quota window returned | Show just that window |
+| Connecting or reconnecting | Show “Reading Codex usage…” when no fresh data is available |
+| Read failure or no usable quota windows | Show “Usage unavailable. Retrying…” when no fresh data is available; temporarily retain fresh existing data |
+| Existing data not refreshed for two minutes | Show “Usage stale · reconnecting” with a gray bar |
+| Codex closed | Hide the overlay and wait for Codex to reopen |
+
+**v0.1.8 does not separately identify signed-out accounts, API-key authentication, missing subscriptions, or subscription expiry.** These may currently produce the generic retry message. A failed quota read does not establish that a subscription has expired or that a Free account is unsupported.
+
+More specific signed-out, missing-quota, and API-authentication messages are planned, subject to reliable account-state detection. They are not included in v0.1.8. Subscription expiry will not be guessed from a plan label or read failure.
 
 ### Language support
 
