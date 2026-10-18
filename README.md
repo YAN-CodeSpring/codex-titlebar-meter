@@ -142,6 +142,12 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 - **关闭后重开 Codex**：Codex 关闭时隐藏浮层，重新打开后重新附着，不需要再启动一次用量条。v0.1.10 修复从 Codex 内运行安装脚本时，后台进程随 Codex 一起退出的问题：安装器通过 Windows 桌面独立启动用量条，不再继承安装终端的进程组。已安装旧版的用户需要重新运行新版 `install.ps1`。
 - **尚未打开 Codex**：程序在后台等待，不会显示独立窗口。直接退出后台进程后，需要手动启动或等下次 Windows 登录；程序没有安装 Windows 服务或修改 Codex 的启动方式。
 
+### 🔧 旧版关闭 Codex 后，用量条不再出现？
+
+下载并完整解压 v0.1.10 或更新版本，运行解压目录中的 `install.ps1` 重新安装即可。升级保留主题、背景、圆角和强调色设置。修复需要重新启动独立的后台进程，因此只替换 exe 文件不能修复已经运行的旧进程。
+
+修复版不会额外启动常驻辅助程序或 Windows 服务；安装完成后，用量条由 Windows 桌面独立启动，Codex 关闭时隐藏，重开后重新附着。
+
 ## 卸载
 
 可以从 Windows“已安装的应用”卸载，或者运行：
@@ -288,6 +294,8 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 The installer copies the app to `%LOCALAPPDATA%\Programs\CodexTitlebarMeter`, starts it immediately, registers per-user login startup, and adds an uninstall entry to Windows Settings. You can also run `codex-titlebar-meter.exe` directly in portable mode.
 
 v0.1.10 launches the installed meter through the existing Windows desktop shell, so closing Codex cannot terminate it through the installation terminal's job objects. Run the updated `install.ps1` to apply this fix to an existing installation. No extra helper or service stays running.
+
+**Upgrading from a version that disappears after closing Codex?** Fully extract v0.1.10 or later and run its `install.ps1`. Your appearance preferences are preserved. Replacing the executable alone cannot detach an already running process from its inherited job objects.
 
 Portable mode does not register login startup. Since v0.1.6, the background watcher survives closing Codex and recreates the overlay when Codex is reopened. If Codex is not running, the watcher waits with no visible window. To start the watcher again after reboot, use the installer or launch the portable executable manually.
 
