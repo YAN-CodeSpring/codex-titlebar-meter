@@ -330,6 +330,7 @@ fn recover_overlay(state: &mut AppState) -> Result<()> {
         state.layered_glass = false;
         state.alpha_failed = false;
         state.last_glass_frame = None;
+        state.last_solid_frame = None;
         state.target = ptr::null_mut();
     }
     Ok(())

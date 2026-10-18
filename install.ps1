@@ -2,6 +2,23 @@
 param()
 
 $ErrorActionPreference = 'Stop'
+
+function Start-IndependentMeter {
+    param([Parameter(Mandatory = $true)][string]$ExecutablePath)
+
+    # Start-Process inherits the terminal's job objects. Codex can terminate
+    # those jobs when it exits, taking the supposedly resident meter with it.
+    # Ask the existing desktop Explorer to launch instead; no helper stays alive.
+    $shell = New-Object -ComObject Shell.Application
+    $shellWindows = $shell.Windows()
+    $desktopHandle = 0
+    $desktop = $shellWindows.FindWindowSW(0, 0, 8, [ref]$desktopHandle, 1)
+    if (-not $desktop) {
+        throw 'Windows desktop shell is unavailable. Installation is complete; launch CodexTitlebarMeter.exe from File Explorer to start it independently.'
+    }
+    $desktop.Document.Application.ShellExecute($ExecutablePath, '', (Split-Path -Parent $ExecutablePath), 'open', 0)
+}
+
 $appName = 'CodexTitlebarMeter'
 $sourceDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $sourceExe = Join-Path $sourceDirectory 'codex-titlebar-meter.exe'
@@ -52,7 +69,7 @@ Set-ItemProperty -Path $runKey -Name $appName -Value ('"{0}"' -f $targetExe)
 
 New-Item -Path $uninstallKey -Force | Out-Null
 Set-ItemProperty -Path $uninstallKey -Name DisplayName -Value 'Codex Titlebar Meter'
-Set-ItemProperty -Path $uninstallKey -Name DisplayVersion -Value '0.1.9'
+Set-ItemProperty -Path $uninstallKey -Name DisplayVersion -Value '0.1.10'
 Set-ItemProperty -Path $uninstallKey -Name Publisher -Value 'YAN-CodeSpring (fork of ConfigCrate)'
 Set-ItemProperty -Path $uninstallKey -Name InstallLocation -Value $installDirectory
 Set-ItemProperty -Path $uninstallKey -Name URLInfoAbout -Value 'https://github.com/YAN-CodeSpring/codex-titlebar-meter'
@@ -60,5 +77,5 @@ Set-ItemProperty -Path $uninstallKey -Name UninstallString -Value ('powershell.e
 Set-ItemProperty -Path $uninstallKey -Name NoModify -Value 1 -Type DWord
 Set-ItemProperty -Path $uninstallKey -Name NoRepair -Value 1 -Type DWord
 
-Start-Process -FilePath $targetExe -WindowStyle Hidden
+Start-IndependentMeter -ExecutablePath $targetExe
 Write-Host 'Codex Titlebar Meter installed. It will follow Codex automatically.' -ForegroundColor Green

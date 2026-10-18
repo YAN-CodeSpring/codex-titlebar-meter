@@ -12,7 +12,7 @@ A Windows **Codex quota monitor and usage meter** for OpenAI Codex Desktop. See 
 
 > 本仓库是 [ConfigCrate/codex-titlebar-meter](https://github.com/configcrate/codex-titlebar-meter) 的 Fork，由 [YAN-CodeSpring](https://github.com/YAN-CodeSpring) 维护此修改版。原项目由 ConfigCrate 开发，保留原始 MIT 许可证及版权声明。
 >
-> 本 Fork 支持最大化与无边框全屏显示、关闭后重开 Codex 自动恢复，以及自动深浅配色和七种强调色。v0.1.9 新增实验性玻璃背景、圆角／方角与独立双模块布局，改进小字号字体和重绘，减少闪动。已通过 35 项自动化测试，且用户已确认实际字体效果改善。
+> 本 Fork 支持最大化与无边框全屏显示、关闭后重开 Codex 自动恢复，以及自动深浅配色和七种强调色。v0.1.10 修复安装后关闭 Codex 导致用量条退出的问题。v0.1.9 新增实验性玻璃背景、圆角／方角与独立双模块布局，改进小字号字体和重绘，减少闪动。已通过 35 项自动化测试，且用户已确认实际字体效果改善。
 >
 > This fork of [ConfigCrate/codex-titlebar-meter](https://github.com/configcrate/codex-titlebar-meter) is maintained by [YAN-CodeSpring](https://github.com/YAN-CodeSpring). It adds maximized and borderless fullscreen support, appearance settings, and memory improvements. Original copyright and MIT license are preserved. Artwork from the original project is retained; the documentation below describes this fork.
 
@@ -91,7 +91,7 @@ Codex Titlebar Meter 是一个原生 Windows 伴生程序。它把 Codex 返回�
 
 ### 当前版本如何显示不同情况？
 
-| 情况 | v0.1.9 的显示与行为 |
+| 情况 | v0.1.10 的显示与行为 |
 | --- | --- |
 | 成功读取额度 | 显示实际周期、剩余百分比和重置时间 |
 | 账号仅返回一个额度窗口 | 只显示这一项，不补造另一条进度条 |
@@ -104,7 +104,7 @@ Codex Titlebar Meter 是一个原生 Windows 伴生程序。它把 Codex 返回�
 
 ### 后续计划：更明确的账号状态提示
 
-后续可在可靠识别状态后，将“未登录”提示为“请先在 Codex 中登录”，将“已登录但没有额度数据”提示为“当前账号未返回额度信息”，将 API 登录提示为“当前登录方式不提供订阅额度”。网络异常继续使用重试提示。**这些细分提示尚未包含在 v0.1.9 中**；不会仅根据读取失败或方案名称猜测订阅已经过期。
+后续可在可靠识别状态后，将“未登录”提示为“请先在 Codex 中登录”，将“已登录但没有额度数据”提示为“当前账号未返回额度信息”，将 API 登录提示为“当前登录方式不提供订阅额度”。网络异常继续使用重试提示。**这些细分提示尚未包含在 v0.1.10 中**；不会仅根据读取失败或方案名称猜测订阅已经过期。
 
 ## 语言支持
 
@@ -115,7 +115,7 @@ Codex Titlebar Meter 是一个原生 Windows 伴生程序。它把 Codex 返回�
 
 ## 安装
 
-1. 打开本 Fork 的 [最新 Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest)，下载 `codex-titlebar-meter-v0.1.9-windows-x64.zip`（不是 GitHub 自动生成的 Source code）。
+1. 打开本 Fork 的 [最新 Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest)，下载 `codex-titlebar-meter-v0.1.10-windows-x64.zip`（不是 GitHub 自动生成的 Source code）。
 2. 将 ZIP 完整解压到一个文件夹。
 3. 退出正在运行的旧版用量条，然后双击 `codex-titlebar-meter.exe`，即可使用便携版；无需安装 Rust。
 4. 打开已登录的 Microsoft Store 版 Codex Desktop，用量条会自动显示。最大化和无边框全屏均可使用。
@@ -139,7 +139,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 
 - **便携版**：双击 exe 只启动本次进程，不会注册开机自启。重启电脑后需要手动启动，或运行上面的安装命令。
 - **安装版**：`install.ps1` 把程序放到固定目录，并在当前用户登录 Windows 时自动启动；不需要管理员权限。
-- **关闭后重开 Codex**：从 v0.1.6 起，用量条的后台监视进程会保留。Codex 关闭时隐藏浮层，重新打开后重新附着，不需要再启动一次用量条。
+- **关闭后重开 Codex**：Codex 关闭时隐藏浮层，重新打开后重新附着，不需要再启动一次用量条。v0.1.10 修复从 Codex 内运行安装脚本时，后台进程随 Codex 一起退出的问题：安装器通过 Windows 桌面独立启动用量条，不再继承安装终端的进程组。已安装旧版的用户需要重新运行新版 `install.ps1`。
 - **尚未打开 Codex**：程序在后台等待，不会显示独立窗口。直接退出后台进程后，需要手动启动或等下次 Windows 登录；程序没有安装 Windows 服务或修改 Codex 的启动方式。
 
 ## 卸载
@@ -255,7 +255,7 @@ The meter is intended for Microsoft Store Codex Desktop on Windows 10/11 x64, ac
 
 **The meter does not enforce a paid-plan requirement or ask you to buy an additional subscription.** It displays compatible quota windows returned by Codex without filtering accounts by Free, Plus, or Pro labels. Free and paid accounts follow the same display logic when quota data is available. This is not a claim that every plan, authentication method, or future version has been tested.
 
-| Situation | Current behavior in v0.1.9 |
+| Situation | Current behavior in v0.1.10 |
 | --- | --- |
 | Quota available | Show actual window durations, remaining percentages, and reset times |
 | Only one quota window returned | Show just that window |
@@ -264,9 +264,9 @@ The meter is intended for Microsoft Store Codex Desktop on Windows 10/11 x64, ac
 | Existing data not refreshed for two minutes | Show “Usage stale · reconnecting” with a gray bar |
 | Codex closed | Hide the overlay and wait for Codex to reopen |
 
-**v0.1.9 does not separately identify signed-out accounts, API-key authentication, missing subscriptions, or subscription expiry.** These may currently produce the generic retry message. A failed quota read does not establish that a subscription has expired or that a Free account is unsupported.
+**v0.1.10 does not separately identify signed-out accounts, API-key authentication, missing subscriptions, or subscription expiry.** These may currently produce the generic retry message. A failed quota read does not establish that a subscription has expired or that a Free account is unsupported.
 
-More specific signed-out, missing-quota, and API-authentication messages are planned, subject to reliable account-state detection. They are not included in v0.1.9. Subscription expiry will not be guessed from a plan label or read failure.
+More specific signed-out, missing-quota, and API-authentication messages are planned, subject to reliable account-state detection. They are not included in v0.1.10. Subscription expiry will not be guessed from a plan label or read failure.
 
 ### Language support
 
@@ -277,7 +277,7 @@ More specific signed-out, missing-quota, and API-authentication messages are pla
 
 ### Install
 
-Download `codex-titlebar-meter-v0.1.9-windows-x64.zip` from this fork's [latest Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest), not the automatically generated source archives. Extract the whole ZIP, exit any older running meter, and double-click `codex-titlebar-meter.exe`. No Rust installation is required. Open the Microsoft Store version of Codex Desktop and sign in; the meter appears automatically, including in maximized and borderless fullscreen windows.
+Download `codex-titlebar-meter-v0.1.10-windows-x64.zip` from this fork's [latest Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest), not the automatically generated source archives. Extract the whole ZIP, exit any older running meter, and double-click `codex-titlebar-meter.exe`. No Rust installation is required. Open the Microsoft Store version of Codex Desktop and sign in; the meter appears automatically, including in maximized and borderless fullscreen windows.
 
 For automatic startup at Windows sign-in, open PowerShell in the extracted folder and run:
 
@@ -286,6 +286,8 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 The installer copies the app to `%LOCALAPPDATA%\Programs\CodexTitlebarMeter`, starts it immediately, registers per-user login startup, and adds an uninstall entry to Windows Settings. You can also run `codex-titlebar-meter.exe` directly in portable mode.
+
+v0.1.10 launches the installed meter through the existing Windows desktop shell, so closing Codex cannot terminate it through the installation terminal's job objects. Run the updated `install.ps1` to apply this fix to an existing installation. No extra helper or service stays running.
 
 Portable mode does not register login startup. Since v0.1.6, the background watcher survives closing Codex and recreates the overlay when Codex is reopened. If Codex is not running, the watcher waits with no visible window. To start the watcher again after reboot, use the installer or launch the portable executable manually.
 
