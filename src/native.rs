@@ -34,7 +34,7 @@ use windows_sys::Win32::{
         LibraryLoader::GetModuleHandleW,
         Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW},
         Threading::{
-            CreateMutexW, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+            CreateMutexW, GetCurrentThreadId, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
             QueryFullProcessImageNameW,
         },
     },
@@ -43,7 +43,7 @@ use windows_sys::Win32::{
             DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForWindow,
             SetProcessDpiAwarenessContext,
         },
-        Input::KeyboardAndMouse::ReleaseCapture,
+        Input::{Ime::ImmDisableIME, KeyboardAndMouse::ReleaseCapture},
         WindowsAndMessaging::{
             AppendMenuW, CREATESTRUCTW, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CreatePopupMenu,
             CreateWindowExW, DefWindowProcW, DestroyMenu, DispatchMessageW, EnumWindows, GW_OWNER,
@@ -153,6 +153,10 @@ pub fn run() -> Result<()> {
         return Ok(());
     };
     unsafe {
+        // This thread only displays text and menus. Opt out before creating any
+        // windows so third-party IMEs need not load into this tiny companion.
+        // This affects only our UI thread, never Codex or other applications.
+        ImmDisableIME(GetCurrentThreadId());
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
 
