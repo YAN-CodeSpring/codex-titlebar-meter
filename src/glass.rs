@@ -227,6 +227,36 @@ pub fn material(
     pixels
 }
 
+/// Area-average RGB coverage without relying on GDI's small-font bitmap strikes.
+/// Alpha is not used here: the separate coverage mask supplies it at composition.
+pub fn downsample_rgb(source: &[u32], width: usize, height: usize, factor: usize) -> Vec<u32> {
+    assert!(factor > 0);
+    let source_width = width * factor;
+    assert_eq!(source.len(), source_width * height * factor);
+    let mut result = vec![0; width * height];
+    let count = (factor * factor) as u32;
+    for y in 0..height {
+        for x in 0..width {
+            let mut channels = [0_u32; 3];
+            for dy in 0..factor {
+                for dx in 0..factor {
+                    let pixel = source[(y * factor + dy) * source_width + x * factor + dx];
+                    for (channel, shift) in channels.iter_mut().zip([0, 8, 16]) {
+                        *channel += (pixel >> shift) & 255;
+                    }
+                }
+            }
+            result[y * width + x] = channels
+                .into_iter()
+                .enumerate()
+                .fold(0, |pixel, (channel, sum)| {
+                    pixel | ((sum + count / 2) / count) << (channel * 8)
+                });
+        }
+    }
+    result
+}
+
 /// Color and white coverage masks are drawn separately with grayscale GDI AA.
 /// This preserves opaque, legible text without opaque rectangles or color keys.
 pub fn composite(material: &mut [u32], color: &[u32], mask: &[u32]) {
@@ -250,6 +280,18 @@ pub fn composite(material: &mut [u32], color: &[u32], mask: &[u32]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn downsampling_keeps_flat_colors_and_fractional_stroke_coverage() {
+        assert_eq!(downsample_rgb(&[0x123456; 36], 2, 2, 3), vec![0x123456; 4]);
+        // A one-pixel-wide stroke at triple resolution has 1/3 native coverage.
+        let stroke = [0xFFFFFF, 0, 0, 0xFFFFFF, 0, 0, 0xFFFFFF, 0, 0];
+        assert_eq!(downsample_rgb(&stroke, 1, 1, 3), vec![0x555555]);
+        assert_eq!(
+            downsample_rgb(&[0, 0xFFFFFF, 0, 0xFFFFFF], 2, 2, 1),
+            vec![0, 0xFFFFFF, 0, 0xFFFFFF]
+        );
+    }
 
     #[test]
     fn surfaces_release_gdi_resources_and_reject_oversized_allocations() {

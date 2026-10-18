@@ -873,6 +873,86 @@ unsafe fn draw_contents(
     client: RECT,
     scale: f32,
     snapshot: &UsageSnapshot,
+    accent: COLORREF,
+    locale: AppLocale,
+    colors: ThemeColors,
+    transparent: bool,
+    glass: bool,
+    mask: bool,
+) {
+    // Small CJK GDI fonts may select bitmap strikes despite AA_QUALITY. Draw
+    // outline-sized glyphs first, then resolve fractional coverage ourselves.
+    const FACTOR: i32 = 3;
+    let width = client.right - client.left;
+    let height = client.bottom - client.top;
+    let high = width
+        .checked_mul(FACTOR)
+        .zip(height.checked_mul(FACTOR))
+        .and_then(|(width, height)| crate::glass::Surface::new(width, height));
+    let low = crate::glass::Surface::new(width, height);
+    if let (Some(mut high), Some(mut low)) = (high, low) {
+        let high_client = RECT {
+            left: 0,
+            top: 0,
+            right: high.width,
+            bottom: high.height,
+        };
+        if !transparent && !glass && !mask {
+            let brush = CreateSolidBrush(colors.background);
+            FillRect(high.dc, &high_client, brush);
+            DeleteObject(brush as HGDIOBJ);
+        }
+        draw_contents_native(
+            high.dc,
+            high_client,
+            scale * FACTOR as f32,
+            snapshot,
+            accent,
+            locale,
+            colors,
+            transparent,
+            glass,
+            mask,
+        );
+        GdiFlush();
+        low.pixels().copy_from_slice(&crate::glass::downsample_rgb(
+            high.pixels(),
+            width as usize,
+            height as usize,
+            FACTOR as usize,
+        ));
+        BitBlt(
+            dc,
+            client.left,
+            client.top,
+            width,
+            height,
+            low.dc,
+            0,
+            0,
+            SRCCOPY,
+        );
+    } else {
+        draw_contents_native(
+            dc,
+            client,
+            scale,
+            snapshot,
+            accent,
+            locale,
+            colors,
+            transparent,
+            glass,
+            mask,
+        );
+    }
+}
+
+unsafe fn draw_contents_native(
+    dc: *mut c_void,
+    client: RECT,
+    scale: f32,
+    snapshot: &UsageSnapshot,
     mut accent: COLORREF,
     locale: AppLocale,
     mut colors: ThemeColors,
@@ -1112,7 +1192,7 @@ unsafe fn render_glass(hwnd: HWND) -> bool {
         frame.accent,
         frame.locale,
         colors,
-        false,
+        !frame.glass,
         frame.glass,
         false,
     );
@@ -1124,7 +1204,7 @@ unsafe fn render_glass(hwnd: HWND) -> bool {
         frame.accent,
         frame.locale,
         colors,
-        false,
+        !frame.glass,
         frame.glass,
         true,
     );
