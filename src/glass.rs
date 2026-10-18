@@ -5,7 +5,7 @@
 use std::{ffi::c_void, mem::size_of, ptr};
 
 use windows_sys::Win32::{
-    Foundation::{COLORREF, HWND, POINT, SIZE},
+    Foundation::{COLORREF, HWND, POINT, RECT, SIZE},
     Graphics::Gdi::{
         AC_SRC_ALPHA, AC_SRC_OVER, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLENDFUNCTION,
         CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS, DeleteDC, DeleteObject, HBITMAP, HDC,
@@ -129,8 +129,12 @@ fn over(pixel: u32, rgb: [f32; 3], alpha: f32) -> u32 {
         | channel(0, rgb[2])
 }
 
-fn distance(x: f32, y: f32, width: f32, height: f32, scale: f32) -> (f32, f32, f32) {
-    let radius = ((height - 4.0 * scale) * 0.5).max(scale);
+fn distance(x: f32, y: f32, width: f32, height: f32, scale: f32, rounded: bool) -> (f32, f32, f32) {
+    let radius = if rounded {
+        ((height - 4.0 * scale) * 0.5).max(scale)
+    } else {
+        0.0
+    };
     let px = x - width * 0.5;
     let py = y - height * 0.5;
     let qx = px.abs() - (width * 0.5 - 2.0 * scale - radius).max(0.0);
@@ -148,6 +152,7 @@ fn distance(x: f32, y: f32, width: f32, height: f32, scale: f32) -> (f32, f32, f
     (length + qx.max(qy).min(0.0) - radius, nx, ny)
 }
 
+#[cfg(test)]
 pub fn material(
     width: i32,
     height: i32,
@@ -155,6 +160,18 @@ pub fn material(
     dark: bool,
     ambient: COLORREF,
     pointer: Option<(i32, i32)>,
+) -> Vec<u32> {
+    material_with_corners(width, height, scale, dark, ambient, pointer, true)
+}
+
+fn material_with_corners(
+    width: i32,
+    height: i32,
+    scale: f32,
+    dark: bool,
+    ambient: COLORREF,
+    pointer: Option<(i32, i32)>,
+    rounded: bool,
 ) -> Vec<u32> {
     let mut pixels = vec![0; (width * height) as usize];
     let env = [
@@ -177,6 +194,7 @@ pub fn material(
                 width as f32,
                 height as f32,
                 scale,
+                rounded,
             );
             let coverage = (0.5 - d / scale).clamp(0.0, 1.0);
             let mut pixel = 0;
@@ -188,6 +206,7 @@ pub fn material(
                     width as f32,
                     height as f32,
                     scale,
+                    rounded,
                 );
                 if sd < 3.0 * scale {
                     pixel = over(
@@ -225,6 +244,119 @@ pub fn material(
         }
     }
     pixels
+}
+
+/// Shared geometry for the background, labels and bars. Settings live inside
+/// the final module rather than joining the two cards with a third backplate.
+pub fn module_rects(width: i32, height: i32, scale: f32, dual: bool) -> Vec<RECT> {
+    if !dual {
+        return vec![RECT {
+            left: 0,
+            top: 0,
+            right: width,
+            bottom: height,
+        }];
+    }
+    let gap = ((6.0 * scale).round() as i32)
+        .max(1)
+        .min((width - 2).max(1));
+    let side = (width - gap) / 2;
+    vec![
+        RECT {
+            left: 0,
+            top: 0,
+            right: side,
+            bottom: height,
+        },
+        RECT {
+            left: side + gap,
+            top: 0,
+            right: width,
+            bottom: height,
+        },
+    ]
+}
+
+#[derive(Clone, Copy)]
+pub struct PanelStyle {
+    pub rounded: bool,
+    pub glass: bool,
+    pub transparent: bool,
+    pub dark: bool,
+    pub ambient: COLORREF,
+    pub solid: COLORREF,
+}
+
+pub fn panels(
+    width: i32,
+    height: i32,
+    scale: f32,
+    dual: bool,
+    pointer: Option<(i32, i32)>,
+    style: PanelStyle,
+) -> (Vec<u32>, Vec<u8>) {
+    let mut pixels = vec![0; (width * height) as usize];
+    let mut coverage = vec![0; pixels.len()];
+    let solid = [
+        (style.solid & 255) as f32 / 255.0,
+        ((style.solid >> 8) & 255) as f32 / 255.0,
+        ((style.solid >> 16) & 255) as f32 / 255.0,
+    ];
+    for rect in module_rects(width, height, scale, dual) {
+        let card_width = rect.right - rect.left;
+        let material = if style.glass {
+            Some(material_with_corners(
+                card_width,
+                height,
+                scale,
+                style.dark,
+                style.ambient,
+                pointer.map(|(x, y)| (x - rect.left, y)),
+                style.rounded,
+            ))
+        } else {
+            None
+        };
+        for y in 0..height {
+            for x in 0..card_width {
+                let index = (y * width + rect.left + x) as usize;
+                let (d, _, _) = distance(
+                    x as f32 + 0.5,
+                    y as f32 + 0.5,
+                    card_width as f32,
+                    height as f32,
+                    scale,
+                    style.rounded,
+                );
+                let alpha = (0.5 - d / scale).clamp(0.0, 1.0);
+                coverage[index] = (alpha * 255.0).round() as u8;
+                pixels[index] = if let Some(material) = &material {
+                    material[(y * card_width + x) as usize]
+                } else if style.transparent {
+                    0
+                } else {
+                    over(0, solid, alpha)
+                };
+            }
+        }
+    }
+    (pixels, coverage)
+}
+
+/// Clip foreground as well as backgrounds, so bars and the settings button
+/// cannot square off a rounded card or bridge its transparent center gap.
+pub fn clip_content(color: &mut [u32], mask: &mut [u32], coverage: &[u8]) {
+    assert_eq!(color.len(), coverage.len());
+    assert_eq!(mask.len(), coverage.len());
+    for ((color, mask), alpha) in color.iter_mut().zip(mask).zip(coverage) {
+        let clip = |pixel: u32| {
+            [0, 8, 16].into_iter().fold(0, |result, shift| {
+                result | ((((pixel >> shift) & 255) * *alpha as u32 + 127) / 255) << shift
+            })
+        };
+        *color = clip(*color);
+        *mask = clip(*mask);
+    }
 }
 
 /// Area-average RGB coverage without relying on GDI's small-font bitmap strikes.
@@ -280,6 +412,83 @@ pub fn composite(material: &mut [u32], color: &[u32], mask: &[u32]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn both_cards_follow_corner_style_and_keep_a_clear_gap_at_each_dpi() {
+        for scale in [1.0_f32, 1.25, 1.5, 2.0] {
+            let width = (460.0 * scale).round() as i32;
+            let height = (30.0 * scale).round() as i32;
+            let rects = module_rects(width, height, scale, true);
+            assert_eq!(rects.len(), 2);
+            assert_eq!(rects[1].left - rects[0].right, (6.0 * scale).round() as i32);
+            assert!(
+                ((rects[0].right - rects[0].left) - (rects[1].right - rects[1].left)).abs() <= 1
+            );
+            for rounded in [false, true] {
+                for glass in [false, true] {
+                    let style = PanelStyle {
+                        rounded,
+                        glass,
+                        transparent: false,
+                        dark: false,
+                        ambient: 0xeeeeee,
+                        solid: 0xffffff,
+                    };
+                    let (mut pixels, coverage) = panels(width, height, scale, true, None, style);
+                    for rect in &rects {
+                        let inset = (3.0 * scale).round() as i32;
+                        for x in [rect.left + inset, rect.right - 1 - inset] {
+                            let index = (inset * width + x) as usize;
+                            if rounded {
+                                assert_eq!(coverage[index], 0);
+                            } else {
+                                assert_eq!(coverage[index], 255);
+                            }
+                        }
+                    }
+                    // Even a foreground filling the entire window must not bridge the cards.
+                    let mut color = vec![0xffffff; pixels.len()];
+                    let mut mask = color.clone();
+                    clip_content(&mut color, &mut mask, &coverage);
+                    composite(&mut pixels, &color, &mask);
+                    for y in 0..height {
+                        for x in rects[0].right..rects[1].left {
+                            assert_eq!(pixels[(y * width + x) as usize], 0);
+                        }
+                    }
+                    for pixel in pixels {
+                        for shift in [0, 8, 16] {
+                            assert!((pixel >> shift) & 255 <= pixel >> 24);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn single_card_has_no_artificial_middle_gap() {
+        let rects = module_rects(220, 30, 1.0, false);
+        assert_eq!(rects.len(), 1);
+        assert_eq!(rects[0].left, 0);
+        assert_eq!(rects[0].right, 220);
+        let (_, coverage) = panels(
+            220,
+            30,
+            1.0,
+            false,
+            None,
+            PanelStyle {
+                rounded: true,
+                glass: false,
+                transparent: true,
+                dark: false,
+                ambient: 0,
+                solid: 0xffffff,
+            },
+        );
+        assert_eq!(coverage[15 * 220 + 110], 255);
+    }
 
     #[test]
     fn downsampling_keeps_flat_colors_and_fractional_stroke_coverage() {

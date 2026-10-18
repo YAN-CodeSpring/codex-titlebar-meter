@@ -63,7 +63,7 @@ use windows_sys::Win32::{
     },
 };
 
-use crate::settings::{Settings, Theme};
+use crate::settings::{Corners, Settings, Theme};
 
 use crate::{
     locale::AppLocale,
@@ -113,7 +113,9 @@ struct AppState {
     theme: Theme,
     transparent: bool,
     glass: bool,
+    corners: Corners,
     layered_glass: bool,
+    alpha_failed: bool,
     last_glass_frame: Option<GlassFrame>,
     last_solid_frame: Option<GlassFrame>,
     ambient: COLORREF,
@@ -142,6 +144,8 @@ struct GlassFrame {
     dark: bool,
     ambient: COLORREF,
     glass: bool,
+    transparent: bool,
+    corners: Corners,
     pointer: Option<(i32, i32)>,
     stale: bool,
 }
@@ -222,7 +226,9 @@ pub fn run() -> Result<()> {
             theme: saved_settings.theme,
             transparent: saved_settings.transparent,
             glass: saved_settings.glass,
+            corners: saved_settings.corners,
             layered_glass: false,
+            alpha_failed: false,
             last_glass_frame: None,
             last_solid_frame: None,
             ambient: rgb(127, 127, 127),
@@ -322,6 +328,7 @@ fn recover_overlay(state: &mut AppState) -> Result<()> {
     if state.overlay.is_null() || unsafe { IsWindow(state.overlay) } == 0 {
         state.overlay = create_overlay()?;
         state.layered_glass = false;
+        state.alpha_failed = false;
         state.last_glass_frame = None;
         state.target = ptr::null_mut();
     }
@@ -510,7 +517,9 @@ fn track_codex_window() {
         state.next_theme_check = now + LOCALE_CHECK_INTERVAL;
     }
     let glass = state.glass;
-    let layered = glass || state.transparent;
+    let dual = state.snapshot.primary.is_some() && state.snapshot.weekly.is_some();
+    let layered = !state.alpha_failed
+        && (glass || state.transparent || state.corners == Corners::Rounded || dual);
     let change_layered_mode = layered != state.layered_glass;
     let dpi = unsafe { GetDpiForWindow(target) }.max(96);
     let scale = dpi as f32 / 96.0;
@@ -566,8 +575,7 @@ fn track_codex_window() {
                 reset_layered_window(overlay);
                 SetLayeredWindowAttributes(overlay, 0, 255, LWA_ALPHA);
                 if let Some(mut state) = STATE.get().and_then(|state| state.lock().ok()) {
-                    state.glass = false;
-                    state.transparent = false;
+                    state.alpha_failed = true;
                     state.layered_glass = false;
                     state.last_glass_frame = None;
                     state.last_solid_frame = None;
@@ -598,6 +606,8 @@ fn solid_frame(state: &AppState, width: i32, height: i32, dpi: u32) -> GlassFram
         dark: state.dark,
         ambient: 0,
         glass: false,
+        transparent: false,
+        corners: state.corners,
         pointer: None,
         stale: snapshot_is_stale(&state.snapshot, Local::now().timestamp()),
     }
@@ -801,7 +811,7 @@ unsafe fn paint(hwnd: HWND) {
     let dpi = GetDpiForWindow(hwnd).max(96);
     let scale: f32 = dpi as f32 / 96.0_f32;
 
-    let (snapshot, accent, locale, dark, transparent, glass) = STATE
+    let (snapshot, accent, locale, dark, transparent, glass, corners, alpha_failed) = STATE
         .get()
         .and_then(|state| state.lock().ok())
         .map(|state| {
@@ -812,6 +822,8 @@ unsafe fn paint(hwnd: HWND) {
                 state.dark,
                 state.transparent,
                 state.glass,
+                state.corners,
+                state.alpha_failed,
             )
         })
         .unwrap_or((
@@ -821,9 +833,16 @@ unsafe fn paint(hwnd: HWND) {
             true,
             false,
             false,
+            Corners::Rounded,
+            false,
         ));
 
-    if glass || transparent {
+    if !alpha_failed
+        && (glass
+            || transparent
+            || corners == Corners::Rounded
+            || (snapshot.primary.is_some() && snapshot.weekly.is_some()))
+    {
         EndPaint(hwnd, &paint);
         render_glass(hwnd);
         return;
@@ -863,6 +882,8 @@ unsafe fn paint(hwnd: HWND) {
             dark,
             ambient: 0,
             glass: false,
+            transparent: false,
+            corners: state.corners,
             pointer: None,
         });
     }
@@ -1029,14 +1050,13 @@ unsafe fn draw_contents_native(
     } else {
         match (&snapshot.primary, &snapshot.weekly) {
             (Some(primary), Some(weekly)) => {
-                let gap = (10.0_f32 * scale).round() as i32;
-                let side = ((content_width - gap) / 2).max(1);
+                let cards = crate::glass::module_rects(width, client.bottom, scale, true);
                 draw_metric(
                     dc,
                     RECT {
                         left: 0,
                         top: 0,
-                        right: side,
+                        right: cards[0].right,
                         bottom: text_bottom,
                     },
                     primary,
@@ -1049,7 +1069,7 @@ unsafe fn draw_contents_native(
                 draw_metric(
                     dc,
                     RECT {
-                        left: side + gap,
+                        left: cards[1].left,
                         top: 0,
                         right: content_width,
                         bottom: text_bottom,
@@ -1168,6 +1188,8 @@ unsafe fn render_glass(hwnd: HWND) -> bool {
             dark: state.dark,
             ambient: if state.glass { state.ambient } else { 0 },
             glass: state.glass,
+            transparent: state.transparent,
+            corners: state.corners,
             pointer: if state.glass { pointer } else { None },
             stale: snapshot_is_stale(&state.snapshot, Local::now().timestamp()),
         };
@@ -1192,8 +1214,8 @@ unsafe fn render_glass(hwnd: HWND) -> bool {
         frame.accent,
         frame.locale,
         colors,
-        !frame.glass,
-        frame.glass,
+        frame.transparent,
+        frame.glass || !frame.transparent,
         false,
     );
     draw_contents(
@@ -1204,23 +1226,28 @@ unsafe fn render_glass(hwnd: HWND) -> bool {
         frame.accent,
         frame.locale,
         colors,
-        !frame.glass,
-        frame.glass,
+        frame.transparent,
+        frame.glass || !frame.transparent,
         true,
     );
     GdiFlush();
-    let mut pixels = if frame.glass {
-        crate::glass::material(
-            frame.width,
-            frame.height,
-            scale,
-            frame.dark,
-            frame.ambient,
-            frame.pointer,
-        )
-    } else {
-        vec![0; (frame.width * frame.height) as usize]
-    };
+    let dual = frame.snapshot.primary.is_some() && frame.snapshot.weekly.is_some() && !frame.stale;
+    let (mut pixels, coverage) = crate::glass::panels(
+        frame.width,
+        frame.height,
+        scale,
+        dual,
+        frame.pointer,
+        crate::glass::PanelStyle {
+            rounded: frame.corners == Corners::Rounded,
+            glass: frame.glass,
+            transparent: frame.transparent,
+            dark: frame.dark,
+            ambient: frame.ambient,
+            solid: colors.background,
+        },
+    );
+    crate::glass::clip_content(color.pixels(), mask.pixels(), &coverage);
     crate::glass::composite(&mut pixels, color.pixels(), mask.pixels());
     color.pixels().copy_from_slice(&pixels);
     let success = color.present(hwnd);
@@ -1484,6 +1511,8 @@ fn apply_menu_command(settings: &mut Settings, command: u32) {
             settings.transparent = false;
             settings.glass = true;
         }
+        7 => settings.corners = Corners::Rounded,
+        8 => settings.corners = Corners::Square,
         100..=106 => settings.palette_index = (command - 100) as usize,
         _ => {}
     }
@@ -1507,6 +1536,7 @@ fn show_settings_menu(hwnd: HWND) {
                 theme: state.theme,
                 transparent: state.transparent,
                 glass: state.glass,
+                corners: state.corners,
             },
             state.locale == AppLocale::Chinese,
             state.target,
@@ -1517,6 +1547,7 @@ fn show_settings_menu(hwnd: HWND) {
         let theme = CreatePopupMenu();
         let background = CreatePopupMenu();
         let accents = CreatePopupMenu();
+        let corners = CreatePopupMenu();
         for (id, zh, en, checked) in [
             (
                 1,
@@ -1551,6 +1582,17 @@ fn show_settings_menu(hwnd: HWND) {
                 wide(if chinese { zh } else { en }).as_ptr(),
             );
         }
+        for (id, zh, en, checked) in [
+            (7, "圆角", "Rounded", settings.corners == Corners::Rounded),
+            (8, "方角", "Square", settings.corners == Corners::Square),
+        ] {
+            AppendMenuW(
+                corners,
+                MF_STRING | if checked { MF_CHECKED } else { 0 },
+                id,
+                wide(if chinese { zh } else { en }).as_ptr(),
+            );
+        }
         for (index, (zh, en)) in [
             ("蓝色", "Blue"),
             ("绿色", "Green"),
@@ -1578,6 +1620,7 @@ fn show_settings_menu(hwnd: HWND) {
         for (submenu, zh, en) in [
             (theme, "外观", "Appearance"),
             (background, "背景", "Background"),
+            (corners, "形状", "Corners"),
             (accents, "强调色", "Accent color"),
         ] {
             AppendMenuW(
@@ -1614,6 +1657,8 @@ fn show_settings_menu(hwnd: HWND) {
         state.theme = settings.theme;
         state.transparent = settings.transparent;
         state.glass = settings.glass;
+        state.corners = settings.corners;
+        state.alpha_failed = false;
         state.next_theme_check = Instant::now();
     }
     if command != 0 {
@@ -1721,6 +1766,13 @@ mod tests {
         assert!(settings.glass);
         assert!(!settings.transparent);
         assert_eq!(settings.palette_index, 6);
+        apply_menu_command(&mut settings, 8);
+        assert_eq!(settings.corners, Corners::Square);
+        assert!(settings.glass);
+        assert_eq!(settings.palette_index, 6);
+        apply_menu_command(&mut settings, 7);
+        assert_eq!(settings.corners, Corners::Rounded);
+        assert_eq!(settings.theme, Theme::Light);
         apply_menu_command(&mut settings, 5);
         assert!(!settings.glass);
         assert!(settings.transparent);
@@ -1764,7 +1816,9 @@ mod tests {
                 theme: Theme::Auto,
                 transparent: false,
                 glass: false,
+                corners: Corners::Rounded,
                 layered_glass: false,
+                alpha_failed: false,
                 last_glass_frame: None,
                 last_solid_frame: None,
                 ambient: rgb(31, 31, 31),

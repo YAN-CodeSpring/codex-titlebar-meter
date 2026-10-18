@@ -11,6 +11,8 @@ pub struct Settings {
     #[serde(default)]
     pub glass: bool,
     #[serde(default)]
+    pub corners: Corners,
+    #[serde(default)]
     pub palette_index: usize,
 }
 
@@ -21,6 +23,14 @@ pub enum Theme {
     Auto,
     Light,
     Dark,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Corners {
+    #[default]
+    Rounded,
+    Square,
 }
 
 impl Settings {
@@ -73,6 +83,7 @@ mod tests {
         assert_eq!(settings.theme, Theme::Auto);
         assert!(!settings.transparent);
         assert!(!settings.glass);
+        assert_eq!(settings.corners, Corners::Rounded);
     }
 
     #[test]
@@ -82,12 +93,14 @@ mod tests {
             theme: Theme::Light,
             transparent: true,
             glass: false,
+            corners: Corners::Square,
         };
         let loaded: Settings =
             serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
         assert_eq!(loaded.theme, Theme::Light);
         assert!(loaded.transparent);
         assert_eq!(loaded.palette_index, 5);
+        assert_eq!(loaded.corners, Corners::Square);
     }
 
     #[test]
