@@ -47,7 +47,7 @@ use windows_sys::Win32::{
             DispatchMessageW, EnumWindows, GWL_EXSTYLE, GWL_STYLE, GWLP_HWNDPARENT, GWLP_USERDATA,
             GetClientRect, GetMessageW, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId,
             GW_OWNER, GetForegroundWindow, GetWindow, IsWindow, IsZoomed,
-            HCURSOR, HTCAPTION, HWND_TOP, IDC_ARROW, IsIconic, IsWindowVisible, LWA_ALPHA,
+            HCURSOR, HTCAPTION, HWND_MESSAGE, HWND_TOP, IDC_ARROW, IsIconic, IsWindowVisible, LWA_ALPHA,
             LoadCursorW, MA_NOACTIVATE, MSG, PostQuitMessage, RegisterClassW, SW_HIDE,
             SWP_NOACTIVATE, SWP_SHOWWINDOW, SendMessageW, SetLayeredWindowAttributes, SetTimer,
             SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage, WM_DESTROY,
@@ -65,6 +65,7 @@ use crate::{
 };
 
 const CLASS_NAME: &str = "ConfigCrate.CodexTitlebarMeter.Overlay";
+const WATCHER_CLASS_NAME: &str = "ConfigCrate.CodexTitlebarMeter.Watcher";
 const WINDOW_NAME: &str = "Codex Titlebar Meter";
 const MUTEX_NAME: &str = "Local\\ConfigCrate.CodexTitlebarMeter.4BC6AD61";
 const TRACK_TIMER: usize = 1;
@@ -154,32 +155,10 @@ pub fn run() -> Result<()> {
         bail!("RegisterClassW failed: {}", std::io::Error::last_os_error());
     }
 
-    let window_name = wide(WINDOW_NAME);
-    let hwnd = unsafe {
-        CreateWindowExW(
-            WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED,
-            class_name.as_ptr(),
-            window_name.as_ptr(),
-            WS_POPUP,
-            0,
-            0,
-            1,
-            1,
-            ptr::null_mut(),
-            ptr::null_mut(),
-            instance,
-            ptr::null_mut(),
-        )
-    };
-    if hwnd.is_null() {
-        bail!(
-            "CreateWindowExW failed: {}",
-            std::io::Error::last_os_error()
-        );
-    }
-    unsafe {
-        SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
-    }
+    let hwnd = create_overlay()?;
+    // This message-only window is never owned by Codex. Its timer survives
+    // destruction of the owned overlay when Codex closes or replaces a window.
+    let watcher = create_watcher()?;
     let saved_settings = crate::settings::Settings::load();
 
     STATE
@@ -194,7 +173,7 @@ pub fn run() -> Result<()> {
         }))
         .map_err(|_| anyhow::anyhow!("application state was already initialized"))?;
 
-    if unsafe { SetTimer(hwnd, TRACK_TIMER, TRACK_INTERVAL_MS, None) } == 0 {
+    if unsafe { SetTimer(watcher, TRACK_TIMER, TRACK_INTERVAL_MS, None) } == 0 {
         bail!("SetTimer failed: {}", std::io::Error::last_os_error());
     }
     track_codex_window();
@@ -215,6 +194,70 @@ pub fn run() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn create_overlay() -> Result<HWND> {
+    let class_name = wide(CLASS_NAME);
+    let window_name = wide(WINDOW_NAME);
+    let hwnd = unsafe {
+        CreateWindowExW(
+            WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED,
+            class_name.as_ptr(), window_name.as_ptr(), WS_POPUP,
+            0, 0, 1, 1, ptr::null_mut(), ptr::null_mut(),
+            GetModuleHandleW(ptr::null()), ptr::null_mut(),
+        )
+    };
+    if hwnd.is_null() {
+        bail!("Create overlay failed: {}", std::io::Error::last_os_error());
+    }
+    unsafe { SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA) };
+    Ok(hwnd)
+}
+
+fn create_watcher() -> Result<HWND> {
+    let class_name = wide(WATCHER_CLASS_NAME);
+    let instance = unsafe { GetModuleHandleW(ptr::null()) };
+    let mut class: WNDCLASSW = unsafe { std::mem::zeroed() };
+    class.lpfnWndProc = Some(watcher_proc);
+    class.hInstance = instance;
+    class.lpszClassName = class_name.as_ptr();
+    if unsafe { RegisterClassW(&class) } == 0 {
+        bail!("Register watcher failed: {}", std::io::Error::last_os_error());
+    }
+    let hwnd = unsafe {
+        CreateWindowExW(
+            0, class_name.as_ptr(), ptr::null(), 0,
+            0, 0, 0, 0, HWND_MESSAGE, ptr::null_mut(), instance, ptr::null_mut(),
+        )
+    };
+    if hwnd.is_null() {
+        bail!("Create watcher failed: {}", std::io::Error::last_os_error());
+    }
+    Ok(hwnd)
+}
+
+fn recover_overlay(state: &mut AppState) -> Result<()> {
+    if state.overlay.is_null() || unsafe { IsWindow(state.overlay) } == 0 {
+        state.overlay = create_overlay()?;
+        state.target = ptr::null_mut();
+    }
+    Ok(())
+}
+
+unsafe extern "system" fn watcher_proc(
+    hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM,
+) -> LRESULT {
+    match message {
+        WM_TIMER if wparam == TRACK_TIMER => {
+            track_codex_window();
+            0
+        }
+        WM_DESTROY => {
+            PostQuitMessage(0);
+            0
+        }
+        _ => DefWindowProcW(hwnd, message, wparam, lparam),
+    }
 }
 
 struct InstanceMutex(HANDLE);
@@ -254,10 +297,6 @@ unsafe extern "system" fn window_proc(
             }
             TRUE as LRESULT
         }
-        WM_TIMER if wparam == TRACK_TIMER => {
-            track_codex_window();
-            0
-        }
         WM_PAINT => {
             paint(hwnd);
             0
@@ -291,7 +330,16 @@ unsafe extern "system" fn window_proc(
             0
         }
         WM_DESTROY => {
-            PostQuitMessage(0);
+            // Closing the owner destroys this popup, not the resident watcher.
+            // try_lock also avoids re-entrancy if Windows destroys it during a
+            // window operation performed while state is being inspected.
+            if let Some(mut state) = STATE.get().and_then(|state| state.try_lock().ok())
+                && state.overlay == hwnd
+            {
+                state.overlay = ptr::null_mut();
+                state.target = ptr::null_mut();
+                CODEX_ACTIVE.store(false, Ordering::Relaxed);
+            }
             0
         }
         _ => DefWindowProcW(hwnd, message, wparam, lparam),
@@ -313,6 +361,11 @@ fn track_codex_window() {
         Ok(state) => state,
         Err(_) => return,
     };
+    if let Err(error) = recover_overlay(&mut state) {
+        CODEX_ACTIVE.store(false, Ordering::Relaxed);
+        eprintln!("Recreate quota overlay: {error:#}");
+        return;
+    }
     let overlay = state.overlay;
     let now = Instant::now();
     if now >= state.next_locale_check {
@@ -831,8 +884,8 @@ pub(crate) fn update_snapshot(snapshot: UsageSnapshot) {
         }
         Err(_) => return,
     };
-    unsafe {
-        InvalidateRect(hwnd, ptr::null(), 0);
+    if !hwnd.is_null() {
+        unsafe { InvalidateRect(hwnd, ptr::null(), 0) };
     }
 }
 
@@ -862,8 +915,8 @@ fn mark_usage_status(status: crate::model::UsageStatus) {
         }
         Err(_) => return,
     };
-    unsafe {
-        InvalidateRect(hwnd, ptr::null(), 0);
+    if !hwnd.is_null() {
+        unsafe { InvalidateRect(hwnd, ptr::null(), 0) };
     }
 }
 
@@ -913,6 +966,56 @@ unsafe fn process_path_for_window(hwnd: HWND) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn watcher_survives_owner_closure_and_overlay_can_be_recovered_repeatedly() {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            DestroyWindow, PeekMessageW, PM_REMOVE, WM_QUIT,
+        };
+        unsafe {
+            let instance = GetModuleHandleW(ptr::null());
+            let class_name = wide(CLASS_NAME);
+            let mut class: WNDCLASSW = std::mem::zeroed();
+            class.lpfnWndProc = Some(window_proc);
+            class.hInstance = instance;
+            class.lpszClassName = class_name.as_ptr();
+            assert_ne!(RegisterClassW(&class), 0);
+            let watcher = create_watcher().expect("resident watcher");
+            assert_ne!(SetTimer(watcher, TRACK_TIMER, TRACK_INTERVAL_MS, None), 0);
+            let mut state = AppState {
+                overlay: create_overlay().expect("overlay"),
+                target: ptr::null_mut(),
+                window_mode: WindowMode::Normal,
+                snapshot: UsageSnapshot::default(),
+                palette_index: 2,
+                locale: AppLocale::English,
+                next_locale_check: Instant::now(),
+            };
+            for _ in 0..2 {
+                let owner = CreateWindowExW(
+                    0, class_name.as_ptr(), ptr::null(), WS_POPUP,
+                    0, 0, 1, 1, ptr::null_mut(), ptr::null_mut(), instance, ptr::null_mut(),
+                );
+                assert!(!owner.is_null());
+                SetWindowLongPtrW(state.overlay, GWLP_HWNDPARENT, owner as isize);
+                state.target = owner;
+                assert_ne!(DestroyWindow(owner), 0);
+                assert_eq!(IsWindow(state.overlay), 0, "owner destroys owned popup");
+                assert_ne!(IsWindow(watcher), 0, "watcher remains alive");
+                let mut message: MSG = std::mem::zeroed();
+                assert_eq!(PeekMessageW(&mut message, ptr::null_mut(), WM_QUIT, WM_QUIT, PM_REMOVE), 0,
+                    "destroying the overlay must not terminate the message loop");
+                recover_overlay(&mut state).expect("recover overlay");
+                assert_ne!(IsWindow(state.overlay), 0);
+                assert!(state.target.is_null());
+                assert_eq!(state.palette_index, 2);
+            }
+            DestroyWindow(state.overlay);
+            DestroyWindow(watcher);
+            let mut message: MSG = std::mem::zeroed();
+            assert_ne!(PeekMessageW(&mut message, ptr::null_mut(), WM_QUIT, WM_QUIT, PM_REMOVE), 0);
+        }
+    }
 
     #[test]
     fn compact_layout_is_right_aligned_and_preserves_menu_space() {

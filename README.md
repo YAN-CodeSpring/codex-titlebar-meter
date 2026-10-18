@@ -8,7 +8,7 @@ A Windows **Codex quota monitor and usage meter** for OpenAI Codex Desktop. See 
 
 > 本仓库是 [ConfigCrate/codex-titlebar-meter](https://github.com/configcrate/codex-titlebar-meter) 的 Fork，由 [YAN-CodeSpring](https://github.com/YAN-CodeSpring) 维护此修改版。原项目由 ConfigCrate 开发，保留原始 MIT 许可证及版权声明。
 >
-> 本 Fork 的改进：支持最大化和无边框全屏时显示额度，修正最大化边框偏移，并在切换到其他应用时隐藏用量条。已通过 21 项自动化测试，且用户已确认新版在实际桌面环境中显示成功。
+> 本 Fork 的改进：支持最大化和无边框全屏时显示额度，修正最大化边框偏移，并在切换到其他应用时隐藏用量条。v0.1.6 起关闭 Codex 后保持后台监视，重新打开时自动恢复显示。已通过 22 项自动化测试，且用户已确认全屏显示在实际桌面环境中正常工作。
 >
 > This fork of [ConfigCrate/codex-titlebar-meter](https://github.com/configcrate/codex-titlebar-meter) is maintained by [YAN-CodeSpring](https://github.com/YAN-CodeSpring). It adds maximized and borderless fullscreen support, corrects positioning, and hides the overlay when another app is active. Original copyright and MIT license are preserved. The original project documentation and artwork follow below.
 
@@ -65,7 +65,7 @@ Codex Titlebar Meter 是一个原生 Windows 伴生程序。它把 Codex 返回�
 
 ## 安装
 
-1. 打开本 Fork 的 [最新 Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest)，下载 `codex-titlebar-meter-v0.1.5-windows-x64.zip`（不是 GitHub 自动生成的 Source code）。
+1. 打开本 Fork 的 [最新 Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest)，下载 `codex-titlebar-meter-v0.1.6-windows-x64.zip`（不是 GitHub 自动生成的 Source code）。
 2. 将 ZIP 完整解压到一个文件夹。
 3. 退出正在运行的旧版用量条，然后双击 `codex-titlebar-meter.exe`，即可使用便携版；无需安装 Rust。
 4. 打开已登录的 Microsoft Store 版 Codex Desktop，用量条会自动显示。最大化和无边框全屏均可使用。
@@ -84,6 +84,13 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 4. 在 Windows“已安装的应用”中注册卸载入口。
 
 不安装也可以直接运行 `codex-titlebar-meter.exe` 作为便携版。
+
+## 自动启动与后台运行
+
+- **便携版**：双击 exe 只启动本次进程，不会注册开机自启。重启电脑后需要手动启动，或运行上面的安装命令。
+- **安装版**：`install.ps1` 把程序放到固定目录，并在当前用户登录 Windows 时自动启动；不需要管理员权限。
+- **关闭后重开 Codex**：从 v0.1.6 起，用量条的后台监视进程会保留。Codex 关闭时隐藏浮层，重新打开后重新附着，不需要再启动一次用量条。
+- **尚未打开 Codex**：程序在后台等待，不会显示独立窗口。直接退出后台进程后，需要手动启动或等下次 Windows 登录；程序没有安装 Windows 服务或修改 Codex 的启动方式。
 
 ## 卸载
 
@@ -175,7 +182,7 @@ The color preference is stored at:
 
 ### Install
 
-Download `codex-titlebar-meter-v0.1.5-windows-x64.zip` from this fork's [latest Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest), not the automatically generated source archives. Extract the whole ZIP, exit any older running meter, and double-click `codex-titlebar-meter.exe`. No Rust installation is required. Open the Microsoft Store version of Codex Desktop and sign in; the meter appears automatically, including in maximized and borderless fullscreen windows.
+Download `codex-titlebar-meter-v0.1.6-windows-x64.zip` from this fork's [latest Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest), not the automatically generated source archives. Extract the whole ZIP, exit any older running meter, and double-click `codex-titlebar-meter.exe`. No Rust installation is required. Open the Microsoft Store version of Codex Desktop and sign in; the meter appears automatically, including in maximized and borderless fullscreen windows.
 
 For automatic startup at Windows sign-in, open PowerShell in the extracted folder and run:
 
@@ -184,6 +191,8 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 The installer copies the app to `%LOCALAPPDATA%\Programs\CodexTitlebarMeter`, starts it immediately, registers per-user login startup, and adds an uninstall entry to Windows Settings. You can also run `codex-titlebar-meter.exe` directly in portable mode.
+
+Portable mode does not register login startup. Since v0.1.6, the background watcher survives closing Codex and recreates the overlay when Codex is reopened. If Codex is not running, the watcher waits with no visible window. To start the watcher again after reboot, use the installer or launch the portable executable manually.
 
 ### Uninstall
 
