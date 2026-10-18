@@ -71,7 +71,7 @@ Codex Titlebar Meter 是一个原生 Windows 伴生程序。它把 Codex 返回�
 
 ## 安装
 
-1. 打开本 Fork 的 [最新 Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest)，下载 `codex-titlebar-meter-v0.1.6-windows-x64.zip`（不是 GitHub 自动生成的 Source code）。
+1. 打开本 Fork 的 [最新 Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest)，下载 `codex-titlebar-meter-v0.1.7-windows-x64.zip`（不是 GitHub 自动生成的 Source code）。
 2. 将 ZIP 完整解压到一个文件夹。
 3. 退出正在运行的旧版用量条，然后双击 `codex-titlebar-meter.exe`，即可使用便携版；无需安装 Rust。
 4. 打开已登录的 Microsoft Store 版 Codex Desktop，用量条会自动显示。最大化和无边框全屏均可使用。
@@ -195,7 +195,7 @@ The color preference is stored at:
 
 ### Install
 
-Download `codex-titlebar-meter-v0.1.6-windows-x64.zip` from this fork's [latest Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest), not the automatically generated source archives. Extract the whole ZIP, exit any older running meter, and double-click `codex-titlebar-meter.exe`. No Rust installation is required. Open the Microsoft Store version of Codex Desktop and sign in; the meter appears automatically, including in maximized and borderless fullscreen windows.
+Download `codex-titlebar-meter-v0.1.7-windows-x64.zip` from this fork's [latest Release](https://github.com/YAN-CodeSpring/codex-titlebar-meter/releases/latest), not the automatically generated source archives. Extract the whole ZIP, exit any older running meter, and double-click `codex-titlebar-meter.exe`. No Rust installation is required. Open the Microsoft Store version of Codex Desktop and sign in; the meter appears automatically, including in maximized and borderless fullscreen windows.
 
 For automatic startup at Windows sign-in, open PowerShell in the extracted folder and run:
 
