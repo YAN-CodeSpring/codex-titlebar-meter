@@ -9,6 +9,8 @@ pub struct Settings {
     #[serde(default)]
     pub transparent: bool,
     #[serde(default)]
+    pub glass: bool,
+    #[serde(default)]
     pub palette_index: usize,
 }
 
@@ -70,6 +72,7 @@ mod tests {
         assert_eq!(settings.palette_index, 2);
         assert_eq!(settings.theme, Theme::Auto);
         assert!(!settings.transparent);
+        assert!(!settings.glass);
     }
 
     #[test]
@@ -78,6 +81,7 @@ mod tests {
             palette_index: 5,
             theme: Theme::Light,
             transparent: true,
+            glass: false,
         };
         let loaded: Settings =
             serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
@@ -89,5 +93,17 @@ mod tests {
     #[test]
     fn default_palette_is_first() {
         assert_eq!(Settings::default().palette_index, 0);
+    }
+
+    #[test]
+    fn experimental_glass_round_trips_without_losing_theme_or_accent() {
+        let settings: Settings =
+            serde_json::from_str(r#"{"theme":"dark","palette_index":5,"glass":true}"#).unwrap();
+        let loaded: Settings =
+            serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert!(loaded.glass);
+        assert!(!loaded.transparent);
+        assert_eq!(loaded.theme, Theme::Dark);
+        assert_eq!(loaded.palette_index, 5);
     }
 }

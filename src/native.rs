@@ -22,12 +22,12 @@ use windows_sys::Win32::{
     Graphics::{
         Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute},
         Gdi::{
-            BeginPaint, ClientToScreen, CreateFontW, CreateSolidBrush, DEFAULT_CHARSET,
-            DEFAULT_PITCH, DT_CENTER, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, EndPaint,
-            FF_DONTCARE, FW_NORMAL, FillRect, GdiFlush, GetDC, GetMonitorInfoW, GetPixel, HGDIOBJ,
-            InvalidateRect, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
-            NONANTIALIASED_QUALITY, OUT_DEFAULT_PRECIS, PAINTSTRUCT, ReleaseDC, SelectObject,
-            SetBkMode, SetTextColor, TRANSPARENT,
+            ANTIALIASED_QUALITY, BeginPaint, BitBlt, ClientToScreen, CreateFontW, CreateSolidBrush,
+            DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER, DT_SINGLELINE, DT_VCENTER, DeleteObject,
+            DrawTextW, EndPaint, FF_DONTCARE, FW_NORMAL, FillRect, GdiFlush, GetDC,
+            GetMonitorInfoW, GetPixel, HGDIOBJ, InvalidateRect, MONITOR_DEFAULTTONEAREST,
+            MONITORINFO, MonitorFromWindow, OUT_DEFAULT_PRECIS, PAINTSTRUCT, ReleaseDC, SRCCOPY,
+            SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
         },
     },
     System::{
@@ -50,15 +50,15 @@ use windows_sys::Win32::{
             GWL_EXSTYLE, GWL_STYLE, GWLP_HWNDPARENT, GWLP_USERDATA, GetClientRect, GetCursorPos,
             GetForegroundWindow, GetMessageW, GetWindow, GetWindowLongPtrW, GetWindowRect,
             GetWindowThreadProcessId, HCURSOR, HTCAPTION, HWND_MESSAGE, HWND_TOP, IDC_ARROW,
-            IsIconic, IsWindow, IsWindowVisible, IsZoomed, LWA_ALPHA, LWA_COLORKEY, LoadCursorW,
-            MA_NOACTIVATE, MF_CHECKED, MF_POPUP, MF_STRING, MSG, PostMessageW, PostQuitMessage,
-            RegisterClassW, SW_HIDE, SWP_NOACTIVATE, SWP_SHOWWINDOW, SendMessageW,
-            SetForegroundWindow, SetLayeredWindowAttributes, SetTimer, SetWindowLongPtrW,
-            SetWindowPos, ShowWindow, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTALIGN, TrackPopupMenu,
-            TranslateMessage, WM_DESTROY, WM_ERASEBKGND, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN,
-            WM_MOUSEACTIVATE, WM_NCCREATE, WM_NCLBUTTONDBLCLK, WM_NCLBUTTONDOWN, WM_NULL, WM_PAINT,
-            WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_EX_LAYERED,
-            WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP, WS_THICKFRAME,
+            IsIconic, IsWindow, IsWindowVisible, IsZoomed, LWA_ALPHA, LoadCursorW, MA_NOACTIVATE,
+            MF_CHECKED, MF_POPUP, MF_STRING, MSG, PostMessageW, PostQuitMessage, RegisterClassW,
+            SW_HIDE, SWP_NOACTIVATE, SWP_SHOWWINDOW, SendMessageW, SetForegroundWindow,
+            SetLayeredWindowAttributes, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+            TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTALIGN, TrackPopupMenu, TranslateMessage,
+            WM_DESTROY, WM_ERASEBKGND, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_MOUSEACTIVATE,
+            WM_NCCREATE, WM_NCLBUTTONDBLCLK, WM_NCLBUTTONDOWN, WM_NULL, WM_PAINT, WM_RBUTTONUP,
+            WM_TIMER, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+            WS_EX_TOOLWINDOW, WS_POPUP, WS_THICKFRAME,
         },
     },
 };
@@ -112,6 +112,11 @@ struct AppState {
     palette_index: usize,
     theme: Theme,
     transparent: bool,
+    glass: bool,
+    layered_glass: bool,
+    last_glass_frame: Option<GlassFrame>,
+    last_solid_frame: Option<GlassFrame>,
+    ambient: COLORREF,
     dark: bool,
     menu_open: bool,
     next_theme_check: Instant,
@@ -124,6 +129,21 @@ enum WindowMode {
     Normal,
     Maximized,
     Fullscreen,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct GlassFrame {
+    width: i32,
+    height: i32,
+    dpi: u32,
+    snapshot: UsageSnapshot,
+    accent: COLORREF,
+    locale: AppLocale,
+    dark: bool,
+    ambient: COLORREF,
+    glass: bool,
+    pointer: Option<(i32, i32)>,
+    stale: bool,
 }
 
 unsafe impl Send for AppState {}
@@ -201,6 +221,11 @@ pub fn run() -> Result<()> {
             palette_index: saved_settings.palette_index % PALETTES.len(),
             theme: saved_settings.theme,
             transparent: saved_settings.transparent,
+            glass: saved_settings.glass,
+            layered_glass: false,
+            last_glass_frame: None,
+            last_solid_frame: None,
+            ambient: rgb(127, 127, 127),
             dark: system_is_dark(),
             menu_open: false,
             next_theme_check: Instant::now(),
@@ -296,6 +321,8 @@ fn create_watcher() -> Result<HWND> {
 fn recover_overlay(state: &mut AppState) -> Result<()> {
     if state.overlay.is_null() || unsafe { IsWindow(state.overlay) } == 0 {
         state.overlay = create_overlay()?;
+        state.layered_glass = false;
+        state.last_glass_frame = None;
         state.target = ptr::null_mut();
     }
     Ok(())
@@ -472,48 +499,114 @@ fn track_codex_window() {
     }
 
     if now >= state.next_theme_check {
+        state.ambient =
+            sample_codex_color(bounds, unsafe { GetDpiForWindow(target) }.max(96), overlay)
+                .unwrap_or_else(|| theme_colors(system_is_dark()).background);
         state.dark = match state.theme {
             Theme::Light => false,
             Theme::Dark => true,
-            Theme::Auto => sample_codex_dark(bounds, unsafe { GetDpiForWindow(target) }.max(96))
-                .unwrap_or_else(system_is_dark),
+            Theme::Auto => color_is_dark(state.ambient),
         };
         state.next_theme_check = now + LOCALE_CHECK_INTERVAL;
     }
-    let transparent = state.transparent;
+    let glass = state.glass;
+    let layered = glass || state.transparent;
+    let change_layered_mode = layered != state.layered_glass;
     let dpi = unsafe { GetDpiForWindow(target) }.max(96);
-    let scale: f32 = dpi as f32 / 96.0_f32;
+    let scale = dpi as f32 / 96.0;
     let dual_window = state.snapshot.primary.is_some() && state.snapshot.weekly.is_some();
     let placement = overlay_placement(bounds, mode, scale, dual_window);
+    let solid_changed = placement.as_ref().is_some_and(|rect| {
+        let frame = solid_frame(&state, rect.right - rect.left, rect.bottom - rect.top, dpi);
+        state.last_solid_frame.as_ref() != Some(&frame)
+    });
+    let initialize_solid = !layered && (change_layered_mode || state.last_solid_frame.is_none());
     drop(state);
     let Some(placement) = placement else {
         unsafe { ShowWindow(overlay, SW_HIDE) };
         return;
     };
 
-    if unsafe { GetWindow(overlay, GW_OWNER) } != target {
+    let owner_changed = unsafe { GetWindow(overlay, GW_OWNER) } != target;
+    if owner_changed {
         unsafe {
             SetWindowLongPtrW(overlay, GWLP_HWNDPARENT, target as isize);
         }
     }
     unsafe {
-        SetLayeredWindowAttributes(
-            overlay,
-            TRANSPARENT_KEY,
-            255,
-            if transparent { LWA_COLORKEY } else { LWA_ALPHA },
-        );
-        SetWindowPos(
-            overlay,
-            HWND_TOP,
-            placement.left,
-            placement.top,
-            placement.right - placement.left,
-            placement.bottom - placement.top,
-            SWP_NOACTIVATE | SWP_SHOWWINDOW,
-        );
-        InvalidateRect(overlay, ptr::null(), 0);
+        let visible = IsWindowVisible(overlay) != 0;
+        let mut previous = empty_rect();
+        GetWindowRect(overlay, &mut previous);
+        if change_layered_mode {
+            // Reset only when changing alpha modes, never on an idle timer tick.
+            reset_layered_window(overlay);
+            if let Some(mut state) = STATE.get().and_then(|state| state.lock().ok()) {
+                state.layered_glass = layered;
+                state.last_glass_frame = None;
+                state.last_solid_frame = None;
+            }
+        }
+        if initialize_solid {
+            SetLayeredWindowAttributes(overlay, 0, 255, LWA_ALPHA);
+        }
+        if !visible || owner_changed || !same_rect(previous, placement) {
+            SetWindowPos(
+                overlay,
+                HWND_TOP,
+                placement.left,
+                placement.top,
+                placement.right - placement.left,
+                placement.bottom - placement.top,
+                SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
+        }
+        if layered {
+            if !render_glass(overlay) {
+                // Allocation/compositor failures leave a usable solid meter.
+                reset_layered_window(overlay);
+                SetLayeredWindowAttributes(overlay, 0, 255, LWA_ALPHA);
+                if let Some(mut state) = STATE.get().and_then(|state| state.lock().ok()) {
+                    state.glass = false;
+                    state.transparent = false;
+                    state.layered_glass = false;
+                    state.last_glass_frame = None;
+                    state.last_solid_frame = None;
+                }
+                InvalidateRect(overlay, ptr::null(), 0);
+            }
+        } else if solid_changed || !visible || change_layered_mode {
+            InvalidateRect(overlay, ptr::null(), 0);
+        }
     }
+}
+
+fn same_rect(left: RECT, right: RECT) -> bool {
+    left.left == right.left
+        && left.top == right.top
+        && left.right == right.right
+        && left.bottom == right.bottom
+}
+
+fn solid_frame(state: &AppState, width: i32, height: i32, dpi: u32) -> GlassFrame {
+    GlassFrame {
+        width,
+        height,
+        dpi,
+        snapshot: state.snapshot.clone(),
+        accent: PALETTES[state.palette_index].accent,
+        locale: state.locale,
+        dark: state.dark,
+        ambient: 0,
+        glass: false,
+        pointer: None,
+        stale: snapshot_is_stale(&state.snapshot, Local::now().timestamp()),
+    }
+}
+
+unsafe fn reset_layered_window(hwnd: HWND) {
+    let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style & !(WS_EX_LAYERED as isize));
+    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED as isize);
 }
 
 fn overlay_layout(total_width: i32, scale: f32, dual_window: bool) -> Option<(i32, i32)> {
@@ -708,7 +801,7 @@ unsafe fn paint(hwnd: HWND) {
     let dpi = GetDpiForWindow(hwnd).max(96);
     let scale: f32 = dpi as f32 / 96.0_f32;
 
-    let (snapshot, accent, locale, dark, transparent) = STATE
+    let (snapshot, accent, locale, dark, transparent, glass) = STATE
         .get()
         .and_then(|state| state.lock().ok())
         .map(|state| {
@@ -718,6 +811,7 @@ unsafe fn paint(hwnd: HWND) {
                 state.locale,
                 state.dark,
                 state.transparent,
+                state.glass,
             )
         })
         .unwrap_or((
@@ -726,19 +820,81 @@ unsafe fn paint(hwnd: HWND) {
             AppLocale::English,
             true,
             false,
+            false,
         ));
 
+    if glass || transparent {
+        EndPaint(hwnd, &paint);
+        render_glass(hwnd);
+        return;
+    }
     let colors = theme_colors(dark);
-    let background = CreateSolidBrush(if transparent {
-        TRANSPARENT_KEY
-    } else {
-        colors.background
-    });
-    FillRect(dc, &client, background);
+    let surface = crate::glass::Surface::new(client.right, client.bottom);
+    let draw_dc = surface.as_ref().map_or(dc, |surface| surface.dc);
+    let background = CreateSolidBrush(colors.background);
+    FillRect(draw_dc, &client, background);
     DeleteObject(background as HGDIOBJ);
+    draw_contents(
+        draw_dc, client, scale, &snapshot, accent, locale, colors, false, false, false,
+    );
+    if let Some(surface) = surface.as_ref() {
+        BitBlt(
+            dc,
+            0,
+            0,
+            client.right,
+            client.bottom,
+            surface.dc,
+            0,
+            0,
+            SRCCOPY,
+        );
+    }
+    EndPaint(hwnd, &paint);
+    if let Some(mut state) = STATE.get().and_then(|state| state.lock().ok()) {
+        state.last_solid_frame = Some(GlassFrame {
+            width: client.right,
+            height: client.bottom,
+            dpi,
+            stale: snapshot_is_stale(&snapshot, Local::now().timestamp()),
+            snapshot,
+            accent,
+            locale,
+            dark,
+            ambient: 0,
+            glass: false,
+            pointer: None,
+        });
+    }
+}
 
-    let font_height = -((12.0_f32 * scale).round() as i32);
-    let face = wide("Segoe UI");
+unsafe fn draw_contents(
+    dc: *mut c_void,
+    client: RECT,
+    scale: f32,
+    snapshot: &UsageSnapshot,
+    mut accent: COLORREF,
+    locale: AppLocale,
+    mut colors: ThemeColors,
+    _transparent: bool,
+    glass: bool,
+    mask: bool,
+) {
+    if mask {
+        accent = rgb(255, 255, 255);
+        colors = ThemeColors {
+            background: 0,
+            text: accent,
+            muted: accent,
+            track: accent,
+        };
+    }
+    let (font_name, logical_height) = match locale {
+        AppLocale::Chinese => ("Microsoft YaHei UI", 13.0_f32),
+        AppLocale::English => ("Segoe UI", 12.0_f32),
+    };
+    let font_height = -((logical_height * scale).round() as i32);
+    let face = wide(font_name);
     let font = CreateFontW(
         font_height,
         0,
@@ -751,11 +907,8 @@ unsafe fn paint(hwnd: HWND) {
         DEFAULT_CHARSET.into(),
         OUT_DEFAULT_PRECIS.into(),
         0,
-        if transparent {
-            NONANTIALIASED_QUALITY.into()
-        } else {
-            0
-        },
+        // Grayscale antialiasing works with both solid and per-pixel alpha.
+        ANTIALIASED_QUALITY.into(),
         (DEFAULT_PITCH | FF_DONTCARE).into(),
         face.as_ptr(),
     );
@@ -811,6 +964,7 @@ unsafe fn paint(hwnd: HWND) {
                     accent,
                     colors,
                     scale,
+                    mask,
                 );
                 draw_metric(
                     dc,
@@ -825,6 +979,7 @@ unsafe fn paint(hwnd: HWND) {
                     accent,
                     colors,
                     scale,
+                    mask,
                 );
             }
             (Some(window), None) | (None, Some(window)) => draw_metric(
@@ -840,6 +995,7 @@ unsafe fn paint(hwnd: HWND) {
                 accent,
                 colors,
                 scale,
+                mask,
             ),
             (None, None) => {
                 let status = wide(
@@ -870,9 +1026,15 @@ unsafe fn paint(hwnd: HWND) {
         right: client.right,
         bottom: client.bottom,
     };
-    let button = CreateSolidBrush(colors.background);
-    FillRect(dc, &dot, button);
-    DeleteObject(button as HGDIOBJ);
+    if !glass {
+        let button = CreateSolidBrush(if mask {
+            rgb(255, 255, 255)
+        } else {
+            colors.background
+        });
+        FillRect(dc, &dot, button);
+        DeleteObject(button as HGDIOBJ);
+    }
     let dot_text = wide("...");
     SetTextColor(dc, accent);
     DrawTextW(
@@ -886,7 +1048,108 @@ unsafe fn paint(hwnd: HWND) {
     SelectObject(dc, previous);
     DeleteObject(font as HGDIOBJ);
     GdiFlush();
-    EndPaint(hwnd, &paint);
+}
+
+unsafe fn render_glass(hwnd: HWND) -> bool {
+    let mut client = empty_rect();
+    GetClientRect(hwnd, &mut client);
+    let mut window = empty_rect();
+    GetWindowRect(hwnd, &mut window);
+    let dpi = GetDpiForWindow(hwnd).max(96);
+    let mut pointer = POINT { x: 0, y: 0 };
+    let cursor_valid = GetCursorPos(&mut pointer) != 0;
+    let pointer = if cursor_valid
+        && pointer.x >= window.left
+        && pointer.x < window.right
+        && pointer.y >= window.top
+        && pointer.y < window.bottom
+    {
+        Some((
+            (pointer.x - window.left) / 4 * 4,
+            (pointer.y - window.top) / 4 * 4,
+        ))
+    } else {
+        None
+    };
+    let Some(state_lock) = STATE.get() else {
+        return false;
+    };
+    let frame = {
+        let Ok(state) = state_lock.lock() else {
+            return false;
+        };
+        let frame = GlassFrame {
+            width: client.right,
+            height: client.bottom,
+            dpi,
+            snapshot: state.snapshot.clone(),
+            accent: PALETTES[state.palette_index].accent,
+            locale: state.locale,
+            dark: state.dark,
+            ambient: if state.glass { state.ambient } else { 0 },
+            glass: state.glass,
+            pointer: if state.glass { pointer } else { None },
+            stale: snapshot_is_stale(&state.snapshot, Local::now().timestamp()),
+        };
+        if state.last_glass_frame.as_ref() == Some(&frame) {
+            return true;
+        }
+        frame
+    };
+    let Some(mut color) = crate::glass::Surface::new(frame.width, frame.height) else {
+        return false;
+    };
+    let Some(mut mask) = crate::glass::Surface::new(frame.width, frame.height) else {
+        return false;
+    };
+    let scale = dpi as f32 / 96.0;
+    let colors = theme_colors(frame.dark);
+    draw_contents(
+        color.dc,
+        client,
+        scale,
+        &frame.snapshot,
+        frame.accent,
+        frame.locale,
+        colors,
+        false,
+        frame.glass,
+        false,
+    );
+    draw_contents(
+        mask.dc,
+        client,
+        scale,
+        &frame.snapshot,
+        frame.accent,
+        frame.locale,
+        colors,
+        false,
+        frame.glass,
+        true,
+    );
+    GdiFlush();
+    let mut pixels = if frame.glass {
+        crate::glass::material(
+            frame.width,
+            frame.height,
+            scale,
+            frame.dark,
+            frame.ambient,
+            frame.pointer,
+        )
+    } else {
+        vec![0; (frame.width * frame.height) as usize]
+    };
+    crate::glass::composite(&mut pixels, color.pixels(), mask.pixels());
+    color.pixels().copy_from_slice(&pixels);
+    let success = color.present(hwnd);
+    if success {
+        if let Ok(mut state) = state_lock.lock() {
+            state.last_glass_frame = Some(frame);
+        }
+    }
+    success
 }
 
 unsafe fn draw_metric(
@@ -897,6 +1160,7 @@ unsafe fn draw_metric(
     accent: COLORREF,
     colors: ThemeColors,
     scale: f32,
+    mask: bool,
 ) {
     let padding = (6.0_f32 * scale).round() as i32;
     let text = locale.metric_text(window);
@@ -937,7 +1201,11 @@ unsafe fn draw_metric(
         right: full.left + fill_width,
         bottom: full.bottom,
     };
-    let brush = CreateSolidBrush(quota_color(window.remaining_percent, accent));
+    let brush = CreateSolidBrush(if mask {
+        rgb(255, 255, 255)
+    } else {
+        quota_color(window.remaining_percent, accent)
+    });
     FillRect(dc, &fill, brush);
     GdiFlush();
     DeleteObject(brush as HGDIOBJ);
@@ -1024,6 +1292,7 @@ fn mark_usage_status(status: crate::model::UsageStatus) {
     }
 }
 
+#[cfg(test)]
 const TRANSPARENT_KEY: COLORREF = rgb(1, 2, 3);
 
 #[derive(Clone, Copy)]
@@ -1078,28 +1347,43 @@ fn system_is_dark() -> bool {
 
 // Sample only seven pixels of the visible title bar, to the left of our overlay.
 // Nothing is captured, stored or sent. The majority avoids isolated text/icons.
-fn sample_codex_dark(bounds: RECT, dpi: u32) -> Option<bool> {
+fn sample_codex_color(bounds: RECT, dpi: u32, overlay: HWND) -> Option<COLORREF> {
     let scale = dpi as f32 / 96.0;
     unsafe {
         let dc = GetDC(ptr::null_mut());
         if dc.is_null() {
             return None;
         }
-        let mut dark = 0;
-        let mut valid = 0;
+        let mut samples = Vec::with_capacity(7);
+        let mut excluded = empty_rect();
+        let exclude_overlay =
+            IsWindowVisible(overlay) != 0 && GetWindowRect(overlay, &mut excluded) != 0;
         for offset in [230, 250, 270, 290, 310, 330, 350] {
             let x = bounds.left + (offset as f32 * scale).round() as i32;
+            let y = bounds.top + (16.0 * scale).round() as i32;
             if x >= bounds.right - (200.0 * scale) as i32 {
                 continue;
             }
-            let color = GetPixel(dc, x, bounds.top + (16.0 * scale).round() as i32);
+            // A narrow window can put these samples beneath our own overlay.
+            // Never feed the previous glass/transparent frame back into itself.
+            if exclude_overlay
+                && x >= excluded.left
+                && x < excluded.right
+                && y >= excluded.top
+                && y < excluded.bottom
+            {
+                continue;
+            }
+            let color = GetPixel(dc, x, y);
             if color != u32::MAX {
-                valid += 1;
-                dark += i32::from(color_is_dark(color));
+                samples.push(color);
             }
         }
         ReleaseDC(ptr::null_mut(), dc);
-        (valid >= 3).then_some(dark * 2 > valid)
+        samples.sort_by_key(|color| {
+            (color & 255) * 299 + ((color >> 8) & 255) * 587 + ((color >> 16) & 255) * 114
+        });
+        (samples.len() >= 3).then(|| samples[samples.len() / 2])
     }
 }
 
@@ -1108,8 +1392,18 @@ fn apply_menu_command(settings: &mut Settings, command: u32) {
         1 => settings.theme = Theme::Auto,
         2 => settings.theme = Theme::Light,
         3 => settings.theme = Theme::Dark,
-        4 => settings.transparent = false,
-        5 => settings.transparent = true,
+        4 => {
+            settings.transparent = false;
+            settings.glass = false;
+        }
+        5 => {
+            settings.transparent = true;
+            settings.glass = false;
+        }
+        6 => {
+            settings.transparent = false;
+            settings.glass = true;
+        }
         100..=106 => settings.palette_index = (command - 100) as usize,
         _ => {}
     }
@@ -1132,6 +1426,7 @@ fn show_settings_menu(hwnd: HWND) {
                 palette_index: state.palette_index,
                 theme: state.theme,
                 transparent: state.transparent,
+                glass: state.glass,
             },
             state.locale == AppLocale::Chinese,
             state.target,
@@ -1160,8 +1455,14 @@ fn show_settings_menu(hwnd: HWND) {
             );
         }
         for (id, zh, en, checked) in [
-            (4, "实色", "Solid", !settings.transparent),
+            (4, "实色", "Solid", !settings.transparent && !settings.glass),
             (5, "透明", "Transparent", settings.transparent),
+            (
+                6,
+                "液态玻璃（实验）",
+                "Liquid glass (experimental)",
+                settings.glass,
+            ),
         ] {
             AppendMenuW(
                 background,
@@ -1232,6 +1533,7 @@ fn show_settings_menu(hwnd: HWND) {
         state.palette_index = settings.palette_index;
         state.theme = settings.theme;
         state.transparent = settings.transparent;
+        state.glass = settings.glass;
         state.next_theme_check = Instant::now();
     }
     if command != 0 {
@@ -1271,6 +1573,60 @@ unsafe fn process_path_for_window(hwnd: HWND) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows_sys::Win32::UI::WindowsAndMessaging::LWA_COLORKEY;
+
+    #[test]
+    fn transparent_text_is_antialiased_without_an_opaque_backplate() {
+        unsafe {
+            let rect = RECT {
+                left: 0,
+                top: 0,
+                right: 220,
+                bottom: 30,
+            };
+            let mut color = crate::glass::Surface::new(220, 30).unwrap();
+            let mut mask = crate::glass::Surface::new(220, 30).unwrap();
+            let snapshot = UsageSnapshot::default();
+            let colors = theme_colors(false);
+            for (dc, is_mask) in [(color.dc, false), (mask.dc, true)] {
+                draw_contents(
+                    dc,
+                    rect,
+                    1.0,
+                    &snapshot,
+                    PALETTES[0].accent,
+                    AppLocale::Chinese,
+                    colors,
+                    true,
+                    false,
+                    is_mask,
+                );
+            }
+            GdiFlush();
+            let mut pixels = vec![0; 220 * 30];
+            crate::glass::composite(&mut pixels, color.pixels(), mask.pixels());
+            assert_eq!(pixels[0], 0, "background stays transparent");
+            assert_eq!(
+                pixels[15 * 220 + 210] >> 24,
+                255,
+                "settings button remains clickable"
+            );
+            let text_area = pixels.chunks(220).flat_map(|row| row[..196].iter());
+            assert!(text_area.clone().any(|pixel| pixel >> 24 == 255));
+            assert!(
+                text_area
+                    .clone()
+                    .any(|pixel| (1..255).contains(&(pixel >> 24))),
+                "text edges have grayscale alpha coverage"
+            );
+            for pixel in text_area {
+                let alpha = pixel >> 24;
+                for shift in [0, 8, 16] {
+                    assert!((pixel >> shift) & 255 <= alpha);
+                }
+            }
+        }
+    }
 
     #[test]
     fn appearance_commands_preserve_independent_preferences() {
@@ -1280,6 +1636,13 @@ mod tests {
         apply_menu_command(&mut settings, 5);
         assert_eq!(settings.palette_index, 6);
         assert_eq!(settings.theme, Theme::Light);
+        assert!(settings.transparent);
+        apply_menu_command(&mut settings, 6);
+        assert!(settings.glass);
+        assert!(!settings.transparent);
+        assert_eq!(settings.palette_index, 6);
+        apply_menu_command(&mut settings, 5);
+        assert!(!settings.glass);
         assert!(settings.transparent);
         apply_menu_command(&mut settings, 0);
         apply_menu_command(&mut settings, 4);
@@ -1320,6 +1683,11 @@ mod tests {
                 palette_index: 2,
                 theme: Theme::Auto,
                 transparent: false,
+                glass: false,
+                layered_glass: false,
+                last_glass_frame: None,
+                last_solid_frame: None,
+                ambient: rgb(31, 31, 31),
                 dark: true,
                 menu_open: false,
                 next_theme_check: Instant::now(),
@@ -1327,6 +1695,30 @@ mod tests {
                 next_locale_check: Instant::now(),
             };
             for _ in 0..2 {
+                // Exercise both directions of the documented layered-window
+                // transition on a hidden window, without touching real Codex.
+                reset_layered_window(state.overlay);
+                {
+                    let mut surface = crate::glass::Surface::new(220, 30).unwrap();
+                    surface.pixels().copy_from_slice(&crate::glass::material(
+                        220,
+                        30,
+                        1.0,
+                        true,
+                        rgb(31, 31, 31),
+                        None,
+                    ));
+                    assert!(surface.present(state.overlay));
+                }
+                reset_layered_window(state.overlay);
+                assert_ne!(
+                    SetLayeredWindowAttributes(state.overlay, TRANSPARENT_KEY, 255, LWA_COLORKEY),
+                    0
+                );
+                assert_ne!(
+                    SetLayeredWindowAttributes(state.overlay, 0, 255, LWA_ALPHA),
+                    0
+                );
                 let owner = CreateWindowExW(
                     0,
                     class_name.as_ptr(),
