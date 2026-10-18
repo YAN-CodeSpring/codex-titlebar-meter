@@ -22,15 +22,17 @@ use windows_sys::Win32::{
     Graphics::{
         Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute},
         Gdi::{
-            BeginPaint, CreateFontW, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER,
-            DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, EndPaint, FF_DONTCARE, FW_NORMAL,
-            FillRect, GdiFlush, HGDIOBJ, InvalidateRect, OUT_DEFAULT_PRECIS, PAINTSTRUCT,
-            ClientToScreen, GetMonitorInfoW, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-            MonitorFromWindow, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
+            BeginPaint, ClientToScreen, CreateFontW, CreateSolidBrush, DEFAULT_CHARSET,
+            DEFAULT_PITCH, DT_CENTER, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, EndPaint,
+            FF_DONTCARE, FW_NORMAL, FillRect, GdiFlush, GetDC, GetMonitorInfoW, GetPixel, HGDIOBJ,
+            InvalidateRect, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
+            NONANTIALIASED_QUALITY, OUT_DEFAULT_PRECIS, PAINTSTRUCT, ReleaseDC, SelectObject,
+            SetBkMode, SetTextColor, TRANSPARENT,
         },
     },
     System::{
         LibraryLoader::GetModuleHandleW,
+        Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW},
         Threading::{
             CreateMutexW, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
             QueryFullProcessImageNameW,
@@ -43,21 +45,25 @@ use windows_sys::Win32::{
         },
         Input::KeyboardAndMouse::ReleaseCapture,
         WindowsAndMessaging::{
-            CREATESTRUCTW, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW,
-            DispatchMessageW, EnumWindows, GWL_EXSTYLE, GWL_STYLE, GWLP_HWNDPARENT, GWLP_USERDATA,
-            GetClientRect, GetMessageW, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId,
-            GW_OWNER, GetForegroundWindow, GetWindow, IsWindow, IsZoomed,
-            HCURSOR, HTCAPTION, HWND_MESSAGE, HWND_TOP, IDC_ARROW, IsIconic, IsWindowVisible, LWA_ALPHA,
-            LoadCursorW, MA_NOACTIVATE, MSG, PostQuitMessage, RegisterClassW, SW_HIDE,
-            SWP_NOACTIVATE, SWP_SHOWWINDOW, SendMessageW, SetLayeredWindowAttributes, SetTimer,
-            SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage, WM_DESTROY,
-            WM_ERASEBKGND, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_MOUSEACTIVATE, WM_NCCREATE,
-            WM_NCLBUTTONDBLCLK, WM_NCLBUTTONDOWN, WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSW,
-            WS_CAPTION, WS_CHILD, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP,
-            WS_THICKFRAME,
+            AppendMenuW, CREATESTRUCTW, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CreatePopupMenu,
+            CreateWindowExW, DefWindowProcW, DestroyMenu, DispatchMessageW, EnumWindows, GW_OWNER,
+            GWL_EXSTYLE, GWL_STYLE, GWLP_HWNDPARENT, GWLP_USERDATA, GetClientRect, GetCursorPos,
+            GetForegroundWindow, GetMessageW, GetWindow, GetWindowLongPtrW, GetWindowRect,
+            GetWindowThreadProcessId, HCURSOR, HTCAPTION, HWND_MESSAGE, HWND_TOP, IDC_ARROW,
+            IsIconic, IsWindow, IsWindowVisible, IsZoomed, LWA_ALPHA, LWA_COLORKEY, LoadCursorW,
+            MA_NOACTIVATE, MF_CHECKED, MF_POPUP, MF_STRING, MSG, PostMessageW, PostQuitMessage,
+            RegisterClassW, SW_HIDE, SWP_NOACTIVATE, SWP_SHOWWINDOW, SendMessageW,
+            SetForegroundWindow, SetLayeredWindowAttributes, SetTimer, SetWindowLongPtrW,
+            SetWindowPos, ShowWindow, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTALIGN, TrackPopupMenu,
+            TranslateMessage, WM_DESTROY, WM_ERASEBKGND, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN,
+            WM_MOUSEACTIVATE, WM_NCCREATE, WM_NCLBUTTONDBLCLK, WM_NCLBUTTONDOWN, WM_NULL, WM_PAINT,
+            WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_EX_LAYERED,
+            WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP, WS_THICKFRAME,
         },
     },
 };
+
+use crate::settings::{Settings, Theme};
 
 use crate::{
     locale::AppLocale,
@@ -104,6 +110,11 @@ struct AppState {
     window_mode: WindowMode,
     snapshot: UsageSnapshot,
     palette_index: usize,
+    theme: Theme,
+    transparent: bool,
+    dark: bool,
+    menu_open: bool,
+    next_theme_check: Instant,
     locale: AppLocale,
     next_locale_check: Instant,
 }
@@ -118,7 +129,23 @@ enum WindowMode {
 unsafe impl Send for AppState {}
 
 static STATE: OnceLock<Mutex<AppState>> = OnceLock::new();
-static PALETTES: [Palette; 3] = [Palette::blue(), Palette::green(), Palette::purple()];
+static PALETTES: [Palette; 7] = [
+    Palette::blue(),
+    Palette::green(),
+    Palette::purple(),
+    Palette {
+        accent: rgb(30, 180, 200),
+    },
+    Palette {
+        accent: rgb(240, 140, 45),
+    },
+    Palette {
+        accent: rgb(235, 100, 165),
+    },
+    Palette {
+        accent: rgb(130, 140, 155),
+    },
+];
 static CODEX_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 pub fn run() -> Result<()> {
@@ -168,6 +195,11 @@ pub fn run() -> Result<()> {
             window_mode: WindowMode::Normal,
             snapshot: UsageSnapshot::default(),
             palette_index: saved_settings.palette_index % PALETTES.len(),
+            theme: saved_settings.theme,
+            transparent: saved_settings.transparent,
+            dark: system_is_dark(),
+            menu_open: false,
+            next_theme_check: Instant::now(),
             locale: AppLocale::detect(),
             next_locale_check: Instant::now() + LOCALE_CHECK_INTERVAL,
         }))
@@ -202,9 +234,17 @@ fn create_overlay() -> Result<HWND> {
     let hwnd = unsafe {
         CreateWindowExW(
             WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED,
-            class_name.as_ptr(), window_name.as_ptr(), WS_POPUP,
-            0, 0, 1, 1, ptr::null_mut(), ptr::null_mut(),
-            GetModuleHandleW(ptr::null()), ptr::null_mut(),
+            class_name.as_ptr(),
+            window_name.as_ptr(),
+            WS_POPUP,
+            0,
+            0,
+            1,
+            1,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            GetModuleHandleW(ptr::null()),
+            ptr::null_mut(),
         )
     };
     if hwnd.is_null() {
@@ -222,12 +262,25 @@ fn create_watcher() -> Result<HWND> {
     class.hInstance = instance;
     class.lpszClassName = class_name.as_ptr();
     if unsafe { RegisterClassW(&class) } == 0 {
-        bail!("Register watcher failed: {}", std::io::Error::last_os_error());
+        bail!(
+            "Register watcher failed: {}",
+            std::io::Error::last_os_error()
+        );
     }
     let hwnd = unsafe {
         CreateWindowExW(
-            0, class_name.as_ptr(), ptr::null(), 0,
-            0, 0, 0, 0, HWND_MESSAGE, ptr::null_mut(), instance, ptr::null_mut(),
+            0,
+            class_name.as_ptr(),
+            ptr::null(),
+            0,
+            0,
+            0,
+            0,
+            0,
+            HWND_MESSAGE,
+            ptr::null_mut(),
+            instance,
+            ptr::null_mut(),
         )
     };
     if hwnd.is_null() {
@@ -245,7 +298,10 @@ fn recover_overlay(state: &mut AppState) -> Result<()> {
 }
 
 unsafe extern "system" fn watcher_proc(
-    hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM,
+    hwnd: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
 ) -> LRESULT {
     match message {
         WM_TIMER if wparam == TRACK_TIMER => {
@@ -310,7 +366,7 @@ unsafe extern "system" fn window_proc(
             let dpi = GetDpiForWindow(hwnd).max(96);
             let settings_width = (24 * dpi as i32 / 96).max(24);
             if x >= client.right - settings_width {
-                cycle_palette(hwnd);
+                show_settings_menu(hwnd);
                 return 0;
             }
             if let Some(target) = caption_target() {
@@ -320,13 +376,20 @@ unsafe extern "system" fn window_proc(
             0
         }
         WM_LBUTTONDBLCLK => {
+            let mut client = empty_rect();
+            GetClientRect(hwnd, &mut client);
+            if (lparam as u16) as i32
+                >= client.right - (24 * GetDpiForWindow(hwnd).max(96) as i32 / 96)
+            {
+                return 0;
+            }
             if let Some(target) = caption_target() {
                 SendMessageW(target, WM_NCLBUTTONDBLCLK, HTCAPTION as usize, 0);
             }
             0
         }
         WM_RBUTTONUP => {
-            cycle_palette(hwnd);
+            show_settings_menu(hwnd);
             0
         }
         WM_DESTROY => {
@@ -349,8 +412,7 @@ unsafe extern "system" fn window_proc(
 // Never hold STATE while forwarding synchronous messages to another process.
 fn caption_target() -> Option<HWND> {
     let state = STATE.get()?.lock().ok()?;
-    (!state.target.is_null() && state.window_mode != WindowMode::Fullscreen)
-        .then_some(state.target)
+    (!state.target.is_null() && state.window_mode != WindowMode::Fullscreen).then_some(state.target)
 }
 
 fn track_codex_window() {
@@ -361,6 +423,9 @@ fn track_codex_window() {
         Ok(state) => state,
         Err(_) => return,
     };
+    if state.menu_open {
+        return;
+    }
     if let Err(error) = recover_overlay(&mut state) {
         CODEX_ACTIVE.store(false, Ordering::Relaxed);
         eprintln!("Recreate quota overlay: {error:#}");
@@ -402,6 +467,16 @@ fn track_codex_window() {
         return;
     }
 
+    if now >= state.next_theme_check {
+        state.dark = match state.theme {
+            Theme::Light => false,
+            Theme::Dark => true,
+            Theme::Auto => sample_codex_dark(bounds, unsafe { GetDpiForWindow(target) }.max(96))
+                .unwrap_or_else(system_is_dark),
+        };
+        state.next_theme_check = now + LOCALE_CHECK_INTERVAL;
+    }
+    let transparent = state.transparent;
     let dpi = unsafe { GetDpiForWindow(target) }.max(96);
     let scale: f32 = dpi as f32 / 96.0_f32;
     let dual_window = state.snapshot.primary.is_some() && state.snapshot.weekly.is_some();
@@ -418,6 +493,12 @@ fn track_codex_window() {
         }
     }
     unsafe {
+        SetLayeredWindowAttributes(
+            overlay,
+            TRANSPARENT_KEY,
+            255,
+            if transparent { LWA_COLORKEY } else { LWA_ALPHA },
+        );
         SetWindowPos(
             overlay,
             HWND_TOP,
@@ -571,8 +652,7 @@ fn is_codex_main_window(hwnd: HWND, known_target: bool) -> bool {
         }
         let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
         let extended_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-        if !is_main_window_candidate(style, extended_style)
-            || !GetWindow(hwnd, GW_OWNER).is_null()
+        if !is_main_window_candidate(style, extended_style) || !GetWindow(hwnd, GW_OWNER).is_null()
         {
             return false;
         }
@@ -624,7 +704,7 @@ unsafe fn paint(hwnd: HWND) {
     let dpi = GetDpiForWindow(hwnd).max(96);
     let scale: f32 = dpi as f32 / 96.0_f32;
 
-    let (snapshot, accent, locale) = STATE
+    let (snapshot, accent, locale, dark, transparent) = STATE
         .get()
         .and_then(|state| state.lock().ok())
         .map(|state| {
@@ -632,15 +712,24 @@ unsafe fn paint(hwnd: HWND) {
                 state.snapshot.clone(),
                 PALETTES[state.palette_index].accent,
                 state.locale,
+                state.dark,
+                state.transparent,
             )
         })
         .unwrap_or((
             UsageSnapshot::default(),
             PALETTES[0].accent,
             AppLocale::English,
+            true,
+            false,
         ));
 
-    let background = CreateSolidBrush(rgb(31, 31, 31));
+    let colors = theme_colors(dark);
+    let background = CreateSolidBrush(if transparent {
+        TRANSPARENT_KEY
+    } else {
+        colors.background
+    });
     FillRect(dc, &client, background);
     DeleteObject(background as HGDIOBJ);
 
@@ -658,7 +747,11 @@ unsafe fn paint(hwnd: HWND) {
         DEFAULT_CHARSET.into(),
         OUT_DEFAULT_PRECIS.into(),
         0,
-        0,
+        if transparent {
+            NONANTIALIASED_QUALITY.into()
+        } else {
+            0
+        },
         (DEFAULT_PITCH | FF_DONTCARE).into(),
         face.as_ptr(),
     );
@@ -676,7 +769,7 @@ unsafe fn paint(hwnd: HWND) {
             bottom: text_bottom,
             ..client
         };
-        SetTextColor(dc, rgb(150, 150, 150));
+        SetTextColor(dc, colors.muted);
         DrawTextW(
             dc,
             status.as_ptr(),
@@ -693,7 +786,7 @@ unsafe fn paint(hwnd: HWND) {
             right: content_width - padding,
             bottom: text_bottom,
         };
-        let stale_brush = CreateSolidBrush(rgb(92, 92, 92));
+        let stale_brush = CreateSolidBrush(colors.track);
         FillRect(dc, &stale_bar, stale_brush);
         DeleteObject(stale_brush as HGDIOBJ);
     } else {
@@ -712,6 +805,7 @@ unsafe fn paint(hwnd: HWND) {
                     primary,
                     locale,
                     accent,
+                    colors,
                     scale,
                 );
                 draw_metric(
@@ -725,6 +819,7 @@ unsafe fn paint(hwnd: HWND) {
                     weekly,
                     locale,
                     accent,
+                    colors,
                     scale,
                 );
             }
@@ -739,6 +834,7 @@ unsafe fn paint(hwnd: HWND) {
                 window,
                 locale,
                 accent,
+                colors,
                 scale,
             ),
             (None, None) => {
@@ -752,7 +848,7 @@ unsafe fn paint(hwnd: HWND) {
                     right: content_width,
                     ..client
                 };
-                SetTextColor(dc, rgb(150, 150, 150));
+                SetTextColor(dc, colors.muted);
                 DrawTextW(
                     dc,
                     status.as_ptr(),
@@ -770,6 +866,9 @@ unsafe fn paint(hwnd: HWND) {
         right: client.right,
         bottom: client.bottom,
     };
+    let button = CreateSolidBrush(colors.background);
+    FillRect(dc, &dot, button);
+    DeleteObject(button as HGDIOBJ);
     let dot_text = wide("...");
     SetTextColor(dc, accent);
     DrawTextW(
@@ -792,6 +891,7 @@ unsafe fn draw_metric(
     window: &LimitWindow,
     locale: AppLocale,
     accent: COLORREF,
+    colors: ThemeColors,
     scale: f32,
 ) {
     let padding = (6.0_f32 * scale).round() as i32;
@@ -803,7 +903,7 @@ unsafe fn draw_metric(
         right: rect.right - padding,
         bottom: rect.bottom,
     };
-    SetTextColor(dc, rgb(224, 224, 224));
+    SetTextColor(dc, colors.text);
     DrawTextW(
         dc,
         text.as_ptr(),
@@ -820,7 +920,7 @@ unsafe fn draw_metric(
         right: rect.right - padding,
         bottom: rect.bottom,
     };
-    let track = CreateSolidBrush(rgb(61, 61, 61));
+    let track = CreateSolidBrush(colors.track);
     FillRect(dc, &full, track);
     GdiFlush();
     DeleteObject(track as HGDIOBJ);
@@ -920,19 +1020,220 @@ fn mark_usage_status(status: crate::model::UsageStatus) {
     }
 }
 
-fn cycle_palette(hwnd: HWND) {
-    let Some(state) = STATE.get() else { return };
-    let palette_index = match state.lock() {
-        Ok(mut state) => {
-            state.palette_index = (state.palette_index + 1) % PALETTES.len();
-            state.palette_index
+const TRANSPARENT_KEY: COLORREF = rgb(1, 2, 3);
+
+#[derive(Clone, Copy)]
+struct ThemeColors {
+    background: COLORREF,
+    text: COLORREF,
+    muted: COLORREF,
+    track: COLORREF,
+}
+
+fn theme_colors(dark: bool) -> ThemeColors {
+    if dark {
+        ThemeColors {
+            background: rgb(31, 31, 31),
+            text: rgb(224, 224, 224),
+            muted: rgb(160, 160, 160),
+            track: rgb(70, 70, 70),
         }
-        Err(_) => return,
-    };
-    crate::settings::Settings { palette_index }.save();
-    unsafe {
-        InvalidateRect(hwnd, ptr::null(), 0);
+    } else {
+        ThemeColors {
+            background: rgb(255, 255, 255),
+            text: rgb(30, 30, 30),
+            muted: rgb(95, 95, 95),
+            track: rgb(210, 210, 210),
+        }
     }
+}
+
+fn color_is_dark(color: COLORREF) -> bool {
+    let red = color & 255;
+    let green = (color >> 8) & 255;
+    let blue = (color >> 16) & 255;
+    red * 299 + green * 587 + blue * 114 < 128_000
+}
+
+fn system_is_dark() -> bool {
+    let mut light: u32 = 1;
+    let mut size = size_of::<u32>() as u32;
+    unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            wide("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize").as_ptr(),
+            wide("AppsUseLightTheme").as_ptr(),
+            RRF_RT_REG_DWORD,
+            ptr::null_mut(),
+            &mut light as *mut _ as *mut c_void,
+            &mut size,
+        );
+    }
+    light == 0
+}
+
+// Sample only seven pixels of the visible title bar, to the left of our overlay.
+// Nothing is captured, stored or sent. The majority avoids isolated text/icons.
+fn sample_codex_dark(bounds: RECT, dpi: u32) -> Option<bool> {
+    let scale = dpi as f32 / 96.0;
+    unsafe {
+        let dc = GetDC(ptr::null_mut());
+        if dc.is_null() {
+            return None;
+        }
+        let mut dark = 0;
+        let mut valid = 0;
+        for offset in [230, 250, 270, 290, 310, 330, 350] {
+            let x = bounds.left + (offset as f32 * scale).round() as i32;
+            if x >= bounds.right - (200.0 * scale) as i32 {
+                continue;
+            }
+            let color = GetPixel(dc, x, bounds.top + (16.0 * scale).round() as i32);
+            if color != u32::MAX {
+                valid += 1;
+                dark += i32::from(color_is_dark(color));
+            }
+        }
+        ReleaseDC(ptr::null_mut(), dc);
+        (valid >= 3).then_some(dark * 2 > valid)
+    }
+}
+
+fn apply_menu_command(settings: &mut Settings, command: u32) {
+    match command {
+        1 => settings.theme = Theme::Auto,
+        2 => settings.theme = Theme::Light,
+        3 => settings.theme = Theme::Dark,
+        4 => settings.transparent = false,
+        5 => settings.transparent = true,
+        100..=106 => settings.palette_index = (command - 100) as usize,
+        _ => {}
+    }
+}
+
+fn show_settings_menu(hwnd: HWND) {
+    let Some(state_lock) = STATE.get() else {
+        return;
+    };
+    let (mut settings, chinese, target) = {
+        let Ok(mut state) = state_lock.lock() else {
+            return;
+        };
+        if state.menu_open {
+            return;
+        }
+        state.menu_open = true;
+        (
+            Settings {
+                palette_index: state.palette_index,
+                theme: state.theme,
+                transparent: state.transparent,
+            },
+            state.locale == AppLocale::Chinese,
+            state.target,
+        )
+    };
+    let command = unsafe {
+        let menu = CreatePopupMenu();
+        let theme = CreatePopupMenu();
+        let background = CreatePopupMenu();
+        let accents = CreatePopupMenu();
+        for (id, zh, en, checked) in [
+            (
+                1,
+                "自动（跟随 Codex）",
+                "Auto (follow Codex)",
+                settings.theme == Theme::Auto,
+            ),
+            (2, "浅色", "Light", settings.theme == Theme::Light),
+            (3, "深色", "Dark", settings.theme == Theme::Dark),
+        ] {
+            AppendMenuW(
+                theme,
+                MF_STRING | if checked { MF_CHECKED } else { 0 },
+                id,
+                wide(if chinese { zh } else { en }).as_ptr(),
+            );
+        }
+        for (id, zh, en, checked) in [
+            (4, "实色", "Solid", !settings.transparent),
+            (5, "透明", "Transparent", settings.transparent),
+        ] {
+            AppendMenuW(
+                background,
+                MF_STRING | if checked { MF_CHECKED } else { 0 },
+                id,
+                wide(if chinese { zh } else { en }).as_ptr(),
+            );
+        }
+        for (index, (zh, en)) in [
+            ("蓝色", "Blue"),
+            ("绿色", "Green"),
+            ("紫色", "Purple"),
+            ("青色", "Cyan"),
+            ("橙色", "Orange"),
+            ("粉色", "Pink"),
+            ("石墨灰", "Graphite"),
+        ]
+        .iter()
+        .enumerate()
+        {
+            AppendMenuW(
+                accents,
+                MF_STRING
+                    | if settings.palette_index == index {
+                        MF_CHECKED
+                    } else {
+                        0
+                    },
+                100 + index,
+                wide(if chinese { zh } else { en }).as_ptr(),
+            );
+        }
+        for (submenu, zh, en) in [
+            (theme, "外观", "Appearance"),
+            (background, "背景", "Background"),
+            (accents, "强调色", "Accent color"),
+        ] {
+            AppendMenuW(
+                menu,
+                MF_POPUP,
+                submenu as usize,
+                wide(if chinese { zh } else { en }).as_ptr(),
+            );
+        }
+        let mut position = POINT { x: 0, y: 0 };
+        GetCursorPos(&mut position);
+        // A foreground menu owner is required for reliable outside-click dismissal.
+        SetForegroundWindow(hwnd);
+        let result = TrackPopupMenu(
+            menu,
+            TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTALIGN,
+            position.x,
+            position.y,
+            0,
+            hwnd,
+            ptr::null(),
+        );
+        PostMessageW(hwnd, WM_NULL, 0, 0);
+        if GetForegroundWindow() == hwnd && IsWindow(target) != 0 {
+            SetForegroundWindow(target);
+        }
+        DestroyMenu(menu);
+        result as u32
+    };
+    apply_menu_command(&mut settings, command);
+    if let Ok(mut state) = state_lock.lock() {
+        state.menu_open = false;
+        state.palette_index = settings.palette_index;
+        state.theme = settings.theme;
+        state.transparent = settings.transparent;
+        state.next_theme_check = Instant::now();
+    }
+    if command != 0 {
+        settings.save();
+    }
+    track_codex_window();
 }
 
 pub(crate) fn codex_desktop_cli_source() -> Option<PathBuf> {
@@ -968,9 +1269,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn appearance_commands_preserve_independent_preferences() {
+        let mut settings = Settings::default();
+        apply_menu_command(&mut settings, 106);
+        apply_menu_command(&mut settings, 2);
+        apply_menu_command(&mut settings, 5);
+        assert_eq!(settings.palette_index, 6);
+        assert_eq!(settings.theme, Theme::Light);
+        assert!(settings.transparent);
+        apply_menu_command(&mut settings, 0);
+        apply_menu_command(&mut settings, 4);
+        assert!(!settings.transparent);
+        assert_eq!(settings.theme, Theme::Light);
+    }
+
+    #[test]
+    fn light_and_dark_foregrounds_have_opposite_luminance() {
+        for dark in [false, true] {
+            let colors = theme_colors(dark);
+            assert_eq!(color_is_dark(colors.background), dark);
+            assert_eq!(color_is_dark(colors.text), !dark);
+            assert_ne!(colors.background, TRANSPARENT_KEY);
+        }
+    }
+
+    #[test]
     fn watcher_survives_owner_closure_and_overlay_can_be_recovered_repeatedly() {
         use windows_sys::Win32::UI::WindowsAndMessaging::{
-            DestroyWindow, PeekMessageW, PM_REMOVE, WM_QUIT,
+            DestroyWindow, PM_REMOVE, PeekMessageW, WM_QUIT,
         };
         unsafe {
             let instance = GetModuleHandleW(ptr::null());
@@ -988,13 +1314,28 @@ mod tests {
                 window_mode: WindowMode::Normal,
                 snapshot: UsageSnapshot::default(),
                 palette_index: 2,
+                theme: Theme::Auto,
+                transparent: false,
+                dark: true,
+                menu_open: false,
+                next_theme_check: Instant::now(),
                 locale: AppLocale::English,
                 next_locale_check: Instant::now(),
             };
             for _ in 0..2 {
                 let owner = CreateWindowExW(
-                    0, class_name.as_ptr(), ptr::null(), WS_POPUP,
-                    0, 0, 1, 1, ptr::null_mut(), ptr::null_mut(), instance, ptr::null_mut(),
+                    0,
+                    class_name.as_ptr(),
+                    ptr::null(),
+                    WS_POPUP,
+                    0,
+                    0,
+                    1,
+                    1,
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                    instance,
+                    ptr::null_mut(),
                 );
                 assert!(!owner.is_null());
                 SetWindowLongPtrW(state.overlay, GWLP_HWNDPARENT, owner as isize);
@@ -1003,8 +1344,11 @@ mod tests {
                 assert_eq!(IsWindow(state.overlay), 0, "owner destroys owned popup");
                 assert_ne!(IsWindow(watcher), 0, "watcher remains alive");
                 let mut message: MSG = std::mem::zeroed();
-                assert_eq!(PeekMessageW(&mut message, ptr::null_mut(), WM_QUIT, WM_QUIT, PM_REMOVE), 0,
-                    "destroying the overlay must not terminate the message loop");
+                assert_eq!(
+                    PeekMessageW(&mut message, ptr::null_mut(), WM_QUIT, WM_QUIT, PM_REMOVE),
+                    0,
+                    "destroying the overlay must not terminate the message loop"
+                );
                 recover_overlay(&mut state).expect("recover overlay");
                 assert_ne!(IsWindow(state.overlay), 0);
                 assert!(state.target.is_null());
@@ -1013,7 +1357,10 @@ mod tests {
             DestroyWindow(state.overlay);
             DestroyWindow(watcher);
             let mut message: MSG = std::mem::zeroed();
-            assert_ne!(PeekMessageW(&mut message, ptr::null_mut(), WM_QUIT, WM_QUIT, PM_REMOVE), 0);
+            assert_ne!(
+                PeekMessageW(&mut message, ptr::null_mut(), WM_QUIT, WM_QUIT, PM_REMOVE),
+                0
+            );
         }
     }
 
@@ -1064,29 +1411,63 @@ mod tests {
     }
 
     fn rect(left: i32, top: i32, right: i32, bottom: i32) -> RECT {
-        RECT { left, top, right, bottom }
+        RECT {
+            left,
+            top,
+            right,
+            bottom,
+        }
     }
 
     #[test]
     fn fullscreen_requires_borderless_monitor_coverage() {
         let monitor = rect(0, 0, 1920, 1080);
-        assert_eq!(classify_window(WS_POPUP, false, monitor, monitor), WindowMode::Fullscreen);
+        assert_eq!(
+            classify_window(WS_POPUP, false, monitor, monitor),
+            WindowMode::Fullscreen
+        );
         // Some applications retain their maximized flag while in fullscreen.
-        assert_eq!(classify_window(WS_POPUP, true, monitor, monitor), WindowMode::Fullscreen);
-        assert_eq!(classify_window(WS_CAPTION, false, monitor, monitor), WindowMode::Normal);
-        assert_eq!(classify_window(WS_POPUP, false, rect(0, 0, 1200, 800), monitor), WindowMode::Normal);
-        assert_eq!(classify_window(WS_POPUP, false, rect(-1920, 0, 1920, 1080), monitor), WindowMode::Normal);
-        assert_eq!(classify_window(WS_POPUP, false, rect(-1, -1, 1921, 1081), monitor), WindowMode::Fullscreen);
+        assert_eq!(
+            classify_window(WS_POPUP, true, monitor, monitor),
+            WindowMode::Fullscreen
+        );
+        assert_eq!(
+            classify_window(WS_CAPTION, false, monitor, monitor),
+            WindowMode::Normal
+        );
+        assert_eq!(
+            classify_window(WS_POPUP, false, rect(0, 0, 1200, 800), monitor),
+            WindowMode::Normal
+        );
+        assert_eq!(
+            classify_window(WS_POPUP, false, rect(-1920, 0, 1920, 1080), monitor),
+            WindowMode::Normal
+        );
+        assert_eq!(
+            classify_window(WS_POPUP, false, rect(-1, -1, 1921, 1081), monitor),
+            WindowMode::Fullscreen
+        );
     }
 
     #[test]
     fn maximized_bounds_remove_invisible_borders_and_respect_taskbar() {
         let monitor = rect(0, 0, 1920, 1080);
         let bounds = rect(-8, 32, 1928, 1088);
-        assert_eq!(classify_window(WS_CAPTION, true, bounds, monitor), WindowMode::Maximized);
+        assert_eq!(
+            classify_window(WS_CAPTION, true, bounds, monitor),
+            WindowMode::Maximized
+        );
         let visible = intersect_bounds(bounds, rect(0, 40, 1920, 1080)).unwrap();
         let placement = overlay_placement(visible, WindowMode::Maximized, 1.0, false).unwrap();
-        assert_eq!((placement.left, placement.top, placement.right, placement.bottom), (1542, 45, 1762, 75));
+        assert_eq!(
+            (
+                placement.left,
+                placement.top,
+                placement.right,
+                placement.bottom
+            ),
+            (1542, 45, 1762, 75)
+        );
     }
 
     #[test]
@@ -1094,12 +1475,16 @@ mod tests {
         for scale in [1.0, 1.5, 2.0] {
             for dual in [false, true] {
                 let bounds = rect(-2560, -1440, 0, 0);
-                let placement = overlay_placement(bounds, WindowMode::Fullscreen, scale, dual).unwrap();
+                let placement =
+                    overlay_placement(bounds, WindowMode::Fullscreen, scale, dual).unwrap();
                 let expected_width = ((if dual { 460.0 } else { 220.0 }) * scale).round() as i32;
                 assert_eq!(placement.top, -1440 + (8.0 * scale).round() as i32);
                 assert_eq!(placement.right, -(158.0 * scale).round() as i32);
                 assert_eq!(placement.right - placement.left, expected_width);
-                assert_eq!(placement.bottom - placement.top, (30.0 * scale).round() as i32);
+                assert_eq!(
+                    placement.bottom - placement.top,
+                    (30.0 * scale).round() as i32
+                );
                 assert!(placement.left >= bounds.left && placement.bottom <= bounds.bottom);
             }
         }
@@ -1108,17 +1493,33 @@ mod tests {
     #[test]
     fn state_transitions_recalculate_margins_and_preserve_normal_layout() {
         let bounds = rect(100, 200, 1300, 1000);
-        for mode in [WindowMode::Normal, WindowMode::Maximized, WindowMode::Fullscreen, WindowMode::Normal] {
+        for mode in [
+            WindowMode::Normal,
+            WindowMode::Maximized,
+            WindowMode::Fullscreen,
+            WindowMode::Normal,
+        ] {
             let placement = overlay_placement(bounds, mode, 1.0, false).unwrap();
             assert_eq!(placement.left, 922);
-            assert_eq!(placement.top, if mode == WindowMode::Fullscreen { 208 } else { 205 });
+            assert_eq!(
+                placement.top,
+                if mode == WindowMode::Fullscreen {
+                    208
+                } else {
+                    205
+                }
+            );
         }
     }
 
     #[test]
     fn placement_hides_when_there_is_no_safe_space() {
-        assert!(overlay_placement(rect(0, 0, 500, 800), WindowMode::Fullscreen, 1.0, false).is_none());
-        assert!(overlay_placement(rect(0, 0, 1200, 35), WindowMode::Fullscreen, 1.0, false).is_none());
+        assert!(
+            overlay_placement(rect(0, 0, 500, 800), WindowMode::Fullscreen, 1.0, false).is_none()
+        );
+        assert!(
+            overlay_placement(rect(0, 0, 1200, 35), WindowMode::Fullscreen, 1.0, false).is_none()
+        );
         assert!(intersect_bounds(rect(-100, 0, 0, 100), rect(0, 0, 100, 100)).is_none());
     }
 

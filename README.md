@@ -8,7 +8,7 @@ A Windows **Codex quota monitor and usage meter** for OpenAI Codex Desktop. See 
 
 > 本仓库是 [ConfigCrate/codex-titlebar-meter](https://github.com/configcrate/codex-titlebar-meter) 的 Fork，由 [YAN-CodeSpring](https://github.com/YAN-CodeSpring) 维护此修改版。原项目由 ConfigCrate 开发，保留原始 MIT 许可证及版权声明。
 >
-> 本 Fork 的改进：支持最大化和无边框全屏时显示额度，修正最大化边框偏移，并在切换到其他应用时隐藏用量条。v0.1.6 起关闭 Codex 后保持后台监视，重新打开时自动恢复显示。已通过 22 项自动化测试，且用户已确认全屏显示在实际桌面环境中正常工作。
+> 本 Fork 的改进：支持最大化和无边框全屏时显示额度，修正最大化边框偏移，并在切换到其他应用时隐藏用量条。v0.1.6 起关闭 Codex 后保持后台监视，重新打开时自动恢复显示。v0.1.7 增加自动深浅配色、透明背景和七种强调色。已通过 26 项自动化测试，且用户已确认全屏显示在实际桌面环境中正常工作。
 >
 > This fork of [ConfigCrate/codex-titlebar-meter](https://github.com/configcrate/codex-titlebar-meter) is maintained by [YAN-CodeSpring](https://github.com/YAN-CodeSpring). It adds maximized and borderless fullscreen support, corrects positioning, and hides the overlay when another app is active. Original copyright and MIT license are preserved. The original project documentation and artwork follow below.
 
@@ -43,8 +43,14 @@ Codex Titlebar Meter 是一个原生 Windows 伴生程序。它把 Codex 返回�
 
 - 拖动用量条：移动 Codex 窗口。
 - 双击用量条：最大化或还原 Codex。
-- 点击右侧彩色方块：切换蓝色、绿色和紫色主题。
-- 右键用量条：同样可以切换颜色。
+- 点击右侧 `...` 按钮或右键用量条：打开设置菜单。
+- 外观：自动（默认）、浅色、深色。浅色为白底深色文字，深色为深底浅色文字。
+- 背景：实色（默认）或透明；透明模式保留文字、进度条和小型设置按钮。
+- 强调色：蓝、绿、紫、青、橙、粉、石墨灰，共七种。低额度时仍优先显示黄／红色警示。
+
+自动模式每两秒读取可见标题栏的七个像素，以多数明暗判断跟随 Codex；无法读取时回退到 Windows 应用主题。不保存截图、不读取对话内容。自定义主题或标题栏图案可能影响判断，可手动指定浅色或深色。设置立即生效并在重启后保留，升级时保留原来的强调色。
+
+透明区域允许点击穿透到 Codex，拖动和双击请在文字、进度条等可见区域操作。透明模式采用无抗锯齿文字以避免透明边缘出现色边。
 
 无边框全屏时，用量条距顶部 8 个逻辑像素，右侧保留 158 个逻辑像素，并随显示器缩放比例调整。全屏时仍可切换颜色，拖动和双击不会触发窗口移动或最大化；退出全屏后恢复标题栏操作。
 
@@ -119,9 +125,9 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -PurgeSettings
 - Windows 10/11 x64
 - OpenAI Codex Desktop（Microsoft Store 版）
 - ChatGPT 管理的 Codex 额度窗口
-- 深色 Codex 标题栏
+- 浅色与深色 Codex 标题栏，可选透明背景
 
-多窗口、浅色主题和 ARM64 将在实际需求出现后再扩展。
+多窗口、ARM64 和更多界面语言将在实际需求出现后再扩展。
 
 ## 开发
 
@@ -165,7 +171,14 @@ Maximized windows use the visible window area to avoid offsets from invisible re
 
 - Drag the meter to move the Codex window.
 - Double-click it to maximize or restore Codex.
-- Click the dots on the right, or right-click the meter, to cycle through blue, green, and purple accents.
+- Click the dots on the right, or right-click the meter, to open settings.
+- Appearance: Auto (default), Light, or Dark.
+- Background: Solid (default) or Transparent. Text, progress bars, and the small settings button remain visible.
+- Accent: Blue, Green, Purple, Cyan, Orange, Pink, or Graphite. Low-quota warning colors still take priority.
+
+Auto checks seven pixels in the visible Codex title bar every two seconds and follows their majority brightness, falling back to the Windows app theme if sampling fails. It does not save screenshots or read conversations. Custom title-bar artwork may affect detection; use a manual theme if needed. Changes apply immediately and persist across restarts, including the existing accent when upgrading.
+
+Transparent regions pass clicks through to Codex; use visible text or bars for dragging and double-clicking. Transparent mode uses non-antialiased text to avoid colored fringes.
 
 The color preference is stored at:
 
@@ -221,9 +234,9 @@ Nothing is sent to ConfigCrate or any third-party server.
 - Windows 10/11 x64
 - OpenAI Codex Desktop from the Microsoft Store
 - ChatGPT-managed Codex quota windows
-- Dark Codex title bar
+- Light and dark Codex title bars, with an optional transparent background
 
-Multi-window support, light themes, ARM64, and additional UI languages are candidates for future releases based on demand.
+Multi-window support, ARM64, and additional UI languages are candidates for future releases based on demand.
 
 ## License
 

@@ -5,7 +5,20 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Settings {
     #[serde(default)]
+    pub theme: Theme,
+    #[serde(default)]
+    pub transparent: bool,
+    #[serde(default)]
     pub palette_index: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Theme {
+    #[default]
+    Auto,
+    Light,
+    Dark,
 }
 
 impl Settings {
@@ -50,6 +63,28 @@ fn settings_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn upgrades_existing_settings_without_losing_accent() {
+        let settings: Settings = serde_json::from_str(r#"{"palette_index":2}"#).unwrap();
+        assert_eq!(settings.palette_index, 2);
+        assert_eq!(settings.theme, Theme::Auto);
+        assert!(!settings.transparent);
+    }
+
+    #[test]
+    fn appearance_round_trips() {
+        let settings = Settings {
+            palette_index: 5,
+            theme: Theme::Light,
+            transparent: true,
+        };
+        let loaded: Settings =
+            serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(loaded.theme, Theme::Light);
+        assert!(loaded.transparent);
+        assert_eq!(loaded.palette_index, 5);
+    }
 
     #[test]
     fn default_palette_is_first() {
